@@ -1,0 +1,13 @@
+{
+  "name": "mcp-sentinel",
+  "version": "0.1.0",
+  "description": "Scan MCP servers for tool poisoning, prompt injection and rug-pulls. Lock tool definitions and fail CI when they drift.",
+  "type": "module",
+  "license": "MIT",
+  "bin": { "mcp-sentinel": "./src/cli.js" },
+  "files": ["src"],
+  "scripts": {
+    "test": "node --no-warnings=ExperimentalWarning --test test/*.test.js"
+  },
+  "keywords": ["mcp", "model-context-protocol", "security", "prompt-injection", "tool-poisoning", "supply-chain"]
+}

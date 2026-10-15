@@ -1,0 +1,13 @@
+name: 'mcp-sentinel'
+description: 'Fail CI when MCP tool definitions are poisoned or drift from the lockfile'
+inputs:
+  config: { description: 'Path to an mcpServers JSON config', required: false, default: '.mcp.json' }
+  fail-on: { description: 'high | medium | low', required: false, default: 'high' }
+  lock: { description: 'Lockfile path', required: false, default: 'mcp-sentinel.lock.json' }
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with: { node-version: '22' }
+    - shell: bash
+      run: npx --yes mcp-sentinel scan "${{ inputs.config }}" --fail-on "${{ inputs.fail-on }}" --lock "${{ inputs.lock }}"
