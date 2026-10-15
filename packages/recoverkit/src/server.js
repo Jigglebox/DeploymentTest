@@ -3,7 +3,7 @@ import { Router, createApp, readBody, sendJson } from '@jigglebox/shared/http';
 import { log } from '@jigglebox/shared/log';
 import { config as defaultConfig, DEFAULT_CAMPAIGN } from './config.js';
 import { Store } from './store.js';
-import { Stripe, verifyWebhook } from './stripe.js';
+import { Stripe, verifyWebhook } from '@jigglebox/shared/stripe';
 import { Engine } from './engine.js';
 import { consoleMailer, resendMailer } from './emails.js';
 import { registerAdmin } from './admin.js';

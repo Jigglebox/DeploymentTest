@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildServer } from '../src/server.js';
-import { signPayload, verifyWebhook, formEncode } from '../src/stripe.js';
+import { signPayload, verifyWebhook, formEncode } from '@jigglebox/shared/stripe';
 import { fakeStripe, failedInvoiceEvent } from './fake-stripe.js';
 
 const listen = (server) => new Promise((r) => server.listen(0, () => r(`http://127.0.0.1:${server.address().port}`)));

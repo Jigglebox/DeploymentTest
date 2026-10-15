@@ -33,6 +33,7 @@ const MIGRATIONS = [
    CREATE INDEX ledger_key_time ON ledger(key_id, created_at);
    CREATE INDEX ledger_key_fp ON ledger(key_id, fingerprint, created_at);
    CREATE INDEX ledger_run ON ledger(run_id);
+   CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
    CREATE TABLE events (
      id INTEGER PRIMARY KEY,
      key_id TEXT,
@@ -104,6 +105,11 @@ export class Store {
   }
   resume(id) { this.q.setStatus.run('active', null, null, id); this.event(id, 'resumed', {}); }
   disable(id) { this.q.setStatus.run('disabled', 'disabled by admin', nowIso(), id); this.event(id, 'disabled', {}); }
+
+  setting(key) { const row = this.db.prepare('SELECT value FROM settings WHERE key=?').get(key); return row ? JSON.parse(row.value) : null; }
+  setSetting(key, value) { this.db.prepare('INSERT INTO settings (key,value,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at').run(key, JSON.stringify(value), nowIso()); }
+  /** Effective plan: a paid subscription recorded via billing beats the env default. */
+  plan(fallback = 'free') { return this.setting('plan') ?? fallback; }
 
   event(keyId, type, detail) { this.q.insertEvent.run(keyId, type, JSON.stringify(detail), nowIso()); }
   recentEvents(limit = 50) { return this.q.recentEvents.all(limit).map((e) => ({ ...e, detail: JSON.parse(e.detail ?? '{}') })); }

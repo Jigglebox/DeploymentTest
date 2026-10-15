@@ -1,5 +1,5 @@
 // In-memory Stripe stand-in exposing the same methods the engine calls.
-import { StripeError } from '../src/stripe.js';
+import { StripeError } from '@jigglebox/shared/stripe';
 
 export function fakeStripe() {
   const invoices = new Map();

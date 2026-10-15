@@ -72,6 +72,10 @@ Auth: `Authorization: Bearer $AGENTFUSE_ADMIN_TOKEN` (or `?token=` for the dashb
 | Hosting | self-host | hosted or self-host | hosted, SSO, audit export |
 | Alerts | webhook | webhook + email + Slack app | + PagerDuty |
 
+## Self-serve upgrades (hosted)
+
+Set `AGENTFUSE_STRIPE_SECRET_KEY`, `AGENTFUSE_STRIPE_WEBHOOK_SECRET`, `AGENTFUSE_PRO_PRICE_ID`, `AGENTFUSE_TEAM_PRICE_ID` and point a Stripe webhook (`checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`) at `/webhooks/stripe`. The dashboard shows an **Upgrade** button; `POST /api/billing/checkout {plan}` returns a Checkout URL; the webhook flips the stored plan and the key limit immediately. `GET /api/billing` reports the effective plan. Self-hosters without billing keep using `AGENTFUSE_PLAN`.
+
 ## Tests
 
 `npm test` — policy engine unit tests and end-to-end proxy tests against a fake upstream (metering, pre-flight block, trip/resume, loop detection, per-run budgets, streaming on both providers, plan gating).

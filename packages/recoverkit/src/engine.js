@@ -4,7 +4,7 @@ import { log } from '@jigglebox/shared/log';
 import { postWebhook } from '@jigglebox/shared/notify';
 import { DEFAULT_CAMPAIGN, HARD_DECLINES } from './config.js';
 import { renderEmail } from './emails.js';
-import { StripeError } from './stripe.js';
+import { StripeError } from '@jigglebox/shared/stripe';
 
 const DAY_MS = 86_400_000;
 /** Retry/email at 10:00 UTC on the target day: mid-morning US/EU, when banks approve most. */

@@ -13,6 +13,12 @@ export const config = {
     openai: { baseUrl: env('OPENAI_BASE_URL', 'https://api.openai.com'), apiKey: env('OPENAI_API_KEY', '') },
     anthropic: { baseUrl: env('ANTHROPIC_BASE_URL', 'https://api.anthropic.com'), apiKey: env('ANTHROPIC_API_KEY', '') },
   },
+  billing: {
+    secretKey: env('AGENTFUSE_STRIPE_SECRET_KEY', ''),
+    webhookSecret: env('AGENTFUSE_STRIPE_WEBHOOK_SECRET', ''),
+    proPriceId: env('AGENTFUSE_PRO_PRICE_ID', ''),
+    teamPriceId: env('AGENTFUSE_TEAM_PRICE_ID', ''),
+  },
   pricingOverrides: env('AGENTFUSE_PRICING_JSON', ''),
   unknownModelPricePerM: { input: num('AGENTFUSE_UNKNOWN_INPUT_PRICE', 5), output: num('AGENTFUSE_UNKNOWN_OUTPUT_PRICE', 25) },
 };

@@ -34,8 +34,8 @@ export function registerAdmin(router, { store, config }) {
   router.post('/api/keys', async (req, res, { url }) => {
     auth(req, url);
     const body = await readJson(req);
-    const limit = PLAN_LIMITS[config.plan]?.maxKeys ?? PLAN_LIMITS.free.maxKeys;
-    if (store.countKeys() >= limit) throw new HttpError(402, `plan "${config.plan}" allows ${limit} keys; upgrade to add more`, { upgrade: 'https://agentfuse.dev/pricing' });
+    const plan = store.plan(config.plan); const limit = PLAN_LIMITS[plan]?.maxKeys ?? PLAN_LIMITS.free.maxKeys;
+    if (store.countKeys() >= limit) throw new HttpError(402, `plan "${plan}" allows ${limit} keys; upgrade to add more`, { upgrade: `${config.publicUrl}/api/billing/checkout` });
     if (!body.name) throw new HttpError(400, 'name is required');
     const key = store.createKey({ name: String(body.name), policy: sanitizePolicy(body.policy ?? body) });
     sendJson(res, 201, { key: view(key), raw_key: key.raw_key, note: 'raw_key is shown once; store it now' });
@@ -90,7 +90,7 @@ export function registerAdmin(router, { store, config }) {
         <input name="daily_budget_usd" type="number" step="0.01" placeholder="daily $ cap (optional)"> <input name="per_run_budget_usd" type="number" step="0.01" placeholder="per-run $ cap (optional)"></p>
         <p><input name="rpm_limit" type="number" placeholder="req/min" value="300"> <input name="loop_max_repeats" type="number" placeholder="identical repeats before trip" value="8"> <input name="loop_window_sec" type="number" placeholder="loop window (s)" value="120">
         <input name="allowed_models" placeholder="allowed model prefixes, comma-separated (optional)"> <select name="preflight"><option value="expected">pre-flight: expected cost</option><option value="strict">pre-flight: worst case (max_tokens)</option></select></p>
-        <button>Create key</button> <span class="muted">Plan: ${esc(config.plan)} (${PLAN_LIMITS[config.plan]?.maxKeys ?? 3} keys)</span>
+        <button>Create key</button> <span class="muted">Plan: ${esc(store.plan(config.plan))} (${PLAN_LIMITS[store.plan(config.plan)]?.maxKeys ?? 3} keys)</span>${store.plan(config.plan) === 'free' ? ` · <form class="inline" method="post" action="/dashboard/upgrade${q}"><button class="secondary">Upgrade to Pro ($29/mo)</button></form>` : ''}
       </form>
       <h2>Top models this month</h2>
       <table><thead><tr><th>Model</th><th>Requests</th><th>Spend</th></tr></thead><tbody>${totals.byModel.map((m) => `<tr><td>${esc(m.model ?? 'unknown')}</td><td>${m.n}</td><td>${usd(m.usd)}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">No traffic yet</td></tr>'}</tbody></table>`;
@@ -154,8 +154,8 @@ ANTHROPIC_API_KEY=af_live_...</code></pre>
   router.post('/dashboard/keys', async (req, res, { url }) => {
     auth(req, url);
     const f = await form(req);
-    const limit = PLAN_LIMITS[config.plan]?.maxKeys ?? 3;
-    if (store.countKeys() >= limit) throw new HttpError(402, `plan "${config.plan}" allows ${limit} keys`);
+    const plan = store.plan(config.plan); const limit = PLAN_LIMITS[plan]?.maxKeys ?? 3;
+    if (store.countKeys() >= limit) throw new HttpError(402, `plan "${plan}" allows ${limit} keys`);
     const key = store.createKey({ name: f.name || 'agent', policy: sanitizePolicy(f) });
     const q = tokenQs(url);
     redirect(res, `/${q}${q ? '&' : '?'}created=${encodeURIComponent(key.raw_key)}`);
@@ -164,4 +164,9 @@ ANTHROPIC_API_KEY=af_live_...</code></pre>
   router.post('/dashboard/keys/:id/resume', (req, res, { url, params }) => { auth(req, url); keyOr404(params.id); store.resume(params.id); redirect(res, `/keys/${params.id}${tokenQs(url)}`); });
   router.post('/dashboard/keys/:id/trip', (req, res, { url, params }) => { auth(req, url); keyOr404(params.id); store.trip(params.id, 'manual', {}); redirect(res, `/keys/${params.id}${tokenQs(url)}`); });
   router.post('/dashboard/keys/:id/delete', (req, res, { url, params }) => { auth(req, url); keyOr404(params.id); store.deleteKey(params.id); redirect(res, `/${tokenQs(url)}`); });
+  router.post('/dashboard/upgrade', async (req, res, { url }) => {
+    auth(req, url); await readBody(req);
+    const r = await fetch(`${config.publicUrl}/api/billing/checkout${tokenQs(url)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ plan: 'pro' }) }).then((x) => x.json()).catch(() => null);
+    if (r?.url) redirect(res, r.url); else sendHtml(res, layout({ title: 'AgentFuse', product: 'AgentFuse', nav: nav(url), body: `<div class="tile"><b>Billing is not configured on this instance.</b><p class="muted">Set AGENTFUSE_STRIPE_SECRET_KEY, AGENTFUSE_STRIPE_WEBHOOK_SECRET and AGENTFUSE_PRO_PRICE_ID, or raise AGENTFUSE_PLAN for self-hosted use.</p></div>` }), 503);
+  });
 }

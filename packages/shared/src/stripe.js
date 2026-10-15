@@ -63,3 +63,10 @@ export function signPayload(rawBody, secret, now = Date.now()) {
   const t = Math.floor(now / 1000);
   return `t=${t},v1=${createHmac('sha256', secret).update(`${t}.${rawBody}`).digest('hex')}`;
 }
+
+// ---- Subscription billing helpers (used by products that sell plans) ----
+Stripe.prototype.checkoutSession = function ({ priceId, successUrl, cancelUrl, customerEmail, clientReferenceId, metadata = {} }) {
+  return this.post('/v1/checkout/sessions', { mode: 'subscription', 'line_items[0][price]': priceId, 'line_items[0][quantity]': 1, success_url: successUrl, cancel_url: cancelUrl,
+    ...(customerEmail ? { customer_email: customerEmail } : {}), ...(clientReferenceId ? { client_reference_id: clientReferenceId } : {}), metadata, allow_promotion_codes: true });
+};
+Stripe.prototype.portalSession = function (customerId, returnUrl) { return this.post('/v1/billing_portal/sessions', { customer: customerId, return_url: returnUrl }); };

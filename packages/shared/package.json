@@ -8,6 +8,7 @@
     "./http": "./src/http.js",
     "./log": "./src/log.js",
     "./notify": "./src/notify.js",
-    "./html": "./src/html.js"
+    "./html": "./src/html.js",
+    "./stripe": "./src/stripe.js"
   }
 }
