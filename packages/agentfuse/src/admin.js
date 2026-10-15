@@ -1,5 +1,6 @@
 // Admin JSON API + HTML dashboard. Auth: AGENTFUSE_ADMIN_TOKEN as Bearer header or ?token= query.
-import { readJson, readBody, sendJson, sendHtml, HttpError } from '@jigglebox/shared/http';
+import { readJson, readForm, sendJson, sendHtml, requireToken, tokenQs as sharedTokenQs, redirect, HttpError } from '@jigglebox/shared/http';
+import { createCheckout } from './billing.js';
 import { layout, esc, usd } from '@jigglebox/shared/html';
 import { PLAN_LIMITS, DEFAULT_POLICY } from './config.js';
 
@@ -12,19 +13,19 @@ function sanitizePolicy(input = {}) {
     const v = input[f];
     if (f === 'allowed_models') out[f] = Array.isArray(v) ? v : (v ? String(v).split(',').map((s) => s.trim()).filter(Boolean) : null);
     else if (f === 'preflight') out[f] = v === 'strict' ? 'strict' : 'expected';
-    else out[f] = v === '' || v == null ? null : Number(v);
+    else {
+      const n = v === '' || v == null ? null : Number(v);
+      if (n !== null && (!Number.isFinite(n) || n < 0)) throw new HttpError(400, `${f} must be a non-negative number`);
+      out[f] = n;
+    }
   }
   return out;
 }
 
-export function registerAdmin(router, { store, config }) {
-  const auth = (req, url) => {
-    if (!config.adminToken) return;
-    const bearer = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
-    if (bearer !== config.adminToken && url.searchParams.get('token') !== config.adminToken) throw new HttpError(401, 'unauthorized');
-  };
+export function registerAdmin(router, { store, config, stripe }) {
+  const auth = (req, url) => requireToken(req, config.adminToken, url);
   const keyOr404 = (id) => { const k = store.getKey(id); if (!k) throw new HttpError(404, 'key not found'); return k; };
-  const tokenQs = (url) => (config.adminToken ? `?token=${encodeURIComponent(url.searchParams.get('token') ?? '')}` : '');
+  const tokenQs = (url) => sharedTokenQs(url, config.adminToken);
   const view = (key) => ({ ...key, key_hash: undefined, spend: store.snapshot(key.id, { loopWindowSec: key.policy.loop_window_sec }) });
 
   router.get('/healthz', (req, res) => sendJson(res, 200, { ok: true, keys: store.countKeys() }));
@@ -149,8 +150,7 @@ ANTHROPIC_API_KEY=af_live_...</code></pre>
   });
 
   // ---- Dashboard form posts (urlencoded) ----
-  const form = async (req) => Object.fromEntries(new URLSearchParams((await readBody(req)).toString('utf8')));
-  const redirect = (res, to) => { res.writeHead(303, { location: to }); res.end(); };
+  const form = readForm;
   router.post('/dashboard/keys', async (req, res, { url }) => {
     auth(req, url);
     const f = await form(req);
@@ -165,8 +165,8 @@ ANTHROPIC_API_KEY=af_live_...</code></pre>
   router.post('/dashboard/keys/:id/trip', (req, res, { url, params }) => { auth(req, url); keyOr404(params.id); store.trip(params.id, 'manual', {}); redirect(res, `/keys/${params.id}${tokenQs(url)}`); });
   router.post('/dashboard/keys/:id/delete', (req, res, { url, params }) => { auth(req, url); keyOr404(params.id); store.deleteKey(params.id); redirect(res, `/${tokenQs(url)}`); });
   router.post('/dashboard/upgrade', async (req, res, { url }) => {
-    auth(req, url); await readBody(req);
-    const r = await fetch(`${config.publicUrl}/api/billing/checkout${tokenQs(url)}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ plan: 'pro' }) }).then((x) => x.json()).catch(() => null);
-    if (r?.url) redirect(res, r.url); else sendHtml(res, layout({ title: 'AgentFuse', product: 'AgentFuse', nav: nav(url), body: `<div class="tile"><b>Billing is not configured on this instance.</b><p class="muted">Set AGENTFUSE_STRIPE_SECRET_KEY, AGENTFUSE_STRIPE_WEBHOOK_SECRET and AGENTFUSE_PRO_PRICE_ID, or raise AGENTFUSE_PLAN for self-hosted use.</p></div>` }), 503);
+    auth(req, url); await readForm(req);
+    try { redirect(res, (await createCheckout({ store, config, stripe }, { plan: 'pro' })).url); }
+    catch (err) { sendHtml(res, layout({ title: 'AgentFuse', product: 'AgentFuse', nav: nav(url), body: `<div class="tile"><b>Upgrade unavailable: ${esc(err.message)}</b><p class="muted">Hosted instances need AGENTFUSE_STRIPE_SECRET_KEY, AGENTFUSE_STRIPE_WEBHOOK_SECRET and AGENTFUSE_PRO_PRICE_ID. Self-hosters can raise AGENTFUSE_PLAN instead.</p></div>` }), err.status ?? 503); }
   });
 }

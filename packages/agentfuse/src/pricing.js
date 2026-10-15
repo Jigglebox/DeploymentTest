@@ -45,14 +45,12 @@ export function priceFor(model) {
   return { ...config.unknownModelPricePerM, known: false, matched: null };
 }
 
-/** usage: { input, output, cached?, cacheWrite? } -> USD */
+/** usage: { input (uncached), output, cached?, cacheWrite? } -> USD. Provider adapters normalise `input` to exclude cached tokens. */
 export function costUsd(model, usage) {
   if (!usage) return 0;
   const p = priceFor(model);
-  const cached = usage.cached ?? 0;
   const cachedPrice = p.cached ?? p.input * 0.1;
-  const freshInput = Math.max(0, (usage.input ?? 0) - (p.cachedIncludedInInput === false ? 0 : 0));
-  const cost = (freshInput * p.input + cached * cachedPrice + (usage.cacheWrite ?? 0) * p.input * 1.25 + (usage.output ?? 0) * p.output) / 1e6;
+  const cost = ((usage.input ?? 0) * p.input + (usage.cached ?? 0) * cachedPrice + (usage.cacheWrite ?? 0) * p.input * 1.25 + (usage.output ?? 0) * p.output) / 1e6;
   return Number(cost.toFixed(8));
 }
 

@@ -108,6 +108,19 @@ test('streaming passes through and is metered (OpenAI + Anthropic)', async () =>
   assert.equal(anth.cost_usd, (2000 * 2 + 500 * 10) / 1e6);
 });
 
+test('binary upstream bodies pass through byte-for-byte', async () => {
+  const created = await admin('/api/keys', { method: 'POST', body: JSON.stringify({ name: 'tts', policy: { monthly_budget_usd: 1000 } }) });
+  const r = await fetch(base + '/openai/v1/audio/speech', { method: 'POST', headers: { authorization: `Bearer ${created.json.raw_key}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'gpt-4o-mini-tts', input: 'hi' }) });
+  assert.equal(r.status, 200);
+  assert.deepEqual([...new Uint8Array(await r.arrayBuffer())], [0xff, 0xfb, 0x90, 0x00, 0xfe]);
+});
+
+test('OpenAI cached prompt tokens are billed once at the cached rate', async () => {
+  const created = await admin('/api/keys', { method: 'POST', body: JSON.stringify({ name: 'cached', policy: { monthly_budget_usd: 1000 } }) });
+  const r = await chat(created.json.raw_key, { model: 'gpt-4o-cached', messages: [{ role: 'user', content: 'c' }] });
+  assert.equal(r.headers.get('x-agentfuse-cost-usd'), '0.001250'); // 1000 cached @ $1.25/M, nothing at $2.50/M
+});
+
 test('plan limit gates key creation', async () => {
   const limited = buildServer({ dbPath: ':memory:', plan: 'free' });
   const b = await listen(limited.server);

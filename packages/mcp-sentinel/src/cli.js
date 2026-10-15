@@ -1,10 +1,14 @@
 #!/usr/bin/env node
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { listTools, serversFromConfig } from './client.js';
 import { analyzeServer, maxSeverity, SEVERITY_RANK } from './analyzer.js';
 import { buildLock, diffLock, readLock, writeLock } from './lock.js';
+
+// mcp-sentinel is published standalone (no workspace deps), so the guard lives here rather than in @jigglebox/shared.
+const isMain = (u) => { try { return process.argv[1] ? pathToFileURL(realpathSync(process.argv[1])).href === u : false; } catch { return false; } };
 
 const CANDIDATE_CONFIGS = ['.mcp.json', '.cursor/mcp.json', '.vscode/mcp.json', `${homedir()}/.claude.json`, `${homedir()}/.cursor/mcp.json`,
   `${homedir()}/Library/Application Support/Claude/claude_desktop_config.json`, `${process.env.APPDATA ?? ''}/Claude/claude_desktop_config.json`];
@@ -89,4 +93,4 @@ async function main() {
   process.exit(failing ? 1 : 0);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main().catch((e) => { console.error(e.stack ?? e.message); process.exit(2); });
+if (isMain(import.meta.url)) main().catch((e) => { console.error(e.stack ?? e.message); process.exit(2); });

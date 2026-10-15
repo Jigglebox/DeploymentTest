@@ -12,11 +12,13 @@ function sseDataObjects(text) {
   return out;
 }
 
-const openaiUsage = (u) => u ? {
-  input: u.prompt_tokens ?? u.input_tokens ?? 0,
-  output: u.completion_tokens ?? u.output_tokens ?? 0,
-  cached: u.prompt_tokens_details?.cached_tokens ?? u.input_tokens_details?.cached_tokens ?? 0,
-} : null;
+// Normalised usage: `input` = uncached prompt tokens, `cached` = cache-read tokens.
+// OpenAI's prompt_tokens INCLUDES cached tokens; Anthropic's input_tokens EXCLUDES them.
+const openaiUsage = (u) => {
+  if (!u) return null;
+  const cached = u.prompt_tokens_details?.cached_tokens ?? u.input_tokens_details?.cached_tokens ?? 0;
+  return { input: Math.max(0, (u.prompt_tokens ?? u.input_tokens ?? 0) - cached), output: u.completion_tokens ?? u.output_tokens ?? 0, cached };
+};
 
 export const providers = {
   openai: {

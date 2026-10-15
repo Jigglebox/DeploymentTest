@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Router, createApp, readBody, sendJson } from '@jigglebox/shared/http';
 import { log } from '@jigglebox/shared/log';
+import { isMain } from '@jigglebox/shared/runtime';
 import { config as defaultConfig, DEFAULT_CAMPAIGN } from './config.js';
 import { Store } from './store.js';
 import { Stripe, verifyWebhook } from '@jigglebox/shared/stripe';
@@ -33,7 +34,7 @@ export function buildServer(overrides = {}) {
   return { server, store, engine, config, startScheduler, stop };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   const app = buildServer();
   app.startScheduler();
   app.server.listen(app.config.port, () => log.info('recoverkit listening', { port: app.config.port, mailer: app.engine.mailer.name, stripe: Boolean(app.config.stripeSecretKey) }));

@@ -32,6 +32,7 @@ export class StdioClient extends Rpc {
         try { this._settle(JSON.parse(line)); } catch { /* non-JSON noise on stdout */ }
       }
     });
+    this.proc.stdin.on('error', () => { /* EPIPE after the server exited; the exit handler reports it */ });
     this.proc.stderr.on('data', (d) => { this.stderr += d.toString('utf8').slice(0, 4000); });
     this.exited = new Promise((r) => this.proc.on('exit', (code) => { this._failAll(new Error(`server exited (${code}) ${this.stderr.trim().split('\n').at(-1) ?? ''}`)); r(code); }));
     this.proc.on('error', (e) => this._failAll(e));

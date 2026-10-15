@@ -1,13 +1,9 @@
-import { sendJson, sendHtml, HttpError, readBody } from '@jigglebox/shared/http';
+import { sendJson, sendHtml, HttpError, readBody, requireToken, tokenQs, redirect } from '@jigglebox/shared/http';
 import { layout, esc, money } from '@jigglebox/shared/html';
 
 export function registerAdmin(router, { store, engine, config }) {
-  const auth = (req, url) => {
-    if (!config.adminToken) return;
-    const bearer = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
-    if (bearer !== config.adminToken && url.searchParams.get('token') !== config.adminToken) throw new HttpError(401, 'unauthorized');
-  };
-  const q = (url) => (config.adminToken ? `?token=${encodeURIComponent(url.searchParams.get('token') ?? '')}` : '');
+  const auth = (req, url) => requireToken(req, config.adminToken, url);
+  const q = (url) => tokenQs(url, config.adminToken);
   const caseOr404 = (id) => { const c = store.getCase(id); if (!c) throw new HttpError(404, 'case not found'); return c; };
   const withFee = (s) => ({ ...s, fee_pct: config.feePct, fee_month_cents: Math.round((s.recovered_month_cents ?? 0) * config.feePct / 100) });
 
@@ -75,7 +71,6 @@ export function registerAdmin(router, { store, engine, config }) {
     sendHtml(res, layout({ title: 'RecoverKit · Setup', product: 'RecoverKit', nav: nav(url), body }));
   });
 
-  const redirect = (res, to) => { res.writeHead(303, { location: to }); res.end(); };
   router.post('/dashboard/cases/:id/retry', async (req, res, { url, params }) => { auth(req, url); await readBody(req); await engine.retry(caseOr404(params.id), 'manual'); redirect(res, `/cases/${params.id}${q(url)}`); });
   router.post('/dashboard/cases/:id/email', async (req, res, { url, params }) => { auth(req, url); await readBody(req); await engine.sendEmail(caseOr404(params.id), 'reminder'); redirect(res, `/cases/${params.id}${q(url)}`); });
   router.post('/dashboard/cases/:id/close', async (req, res, { url, params }) => { auth(req, url); await readBody(req); caseOr404(params.id); store.closeCase(params.id, 'lost'); store.action(params.id, 'closed', { status: 'lost', by: 'manual' }); redirect(res, `/cases/${params.id}${q(url)}`); });

@@ -71,10 +71,15 @@ export function createProxyHandler({ store, config, fetchImpl = fetch }) {
     if (outBody) headers['content-length'] = String(Buffer.byteLength(outBody));
 
     const started = Date.now();
+    // If the agent hangs up, stop paying for tokens it will never read.
+    const abort = new AbortController();
+    let clientGone = false;
+    res.on('close', () => { if (!res.writableFinished) { clientGone = true; abort.abort(); } });
     let upstreamRes;
     try {
-      upstreamRes = await fetchImpl(upstream.baseUrl + upstreamPath + url.search, { method: req.method, headers, body: outBody });
+      upstreamRes = await fetchImpl(upstream.baseUrl + upstreamPath + url.search, { method: req.method, headers, body: outBody, signal: abort.signal });
     } catch (err) {
+      if (clientGone) { store.record({ keyId: key.id, runId, provider: provider.name, model, fingerprint, costUsd: 0, status: 499, latencyMs: Date.now() - started }); return; }
       log.error('upstream unreachable', { provider: provider.name, error: err.message });
       return sendJson(res, 502, { error: { message: `upstream ${provider.name} unreachable: ${err.message}` } });
     }
@@ -84,25 +89,32 @@ export function createProxyHandler({ store, config, fetchImpl = fetch }) {
     const isSse = /text\/event-stream/i.test(upstreamRes.headers.get('content-type') ?? '');
     const chunks = [];
 
-    if (isSse) {
-      res.writeHead(upstreamRes.status, { ...resHeaders, 'x-agentfuse-key': key.id });
-      for await (const chunk of upstreamRes.body) { chunks.push(chunk); res.write(chunk); }
-      res.end();
-    } else {
-      const buf = Buffer.from(await upstreamRes.arrayBuffer());
-      chunks.push(buf);
+    let truncated = false;
+    try {
+      if (isSse) {
+        res.writeHead(upstreamRes.status, { ...resHeaders, 'x-agentfuse-key': key.id });
+        for await (const chunk of upstreamRes.body) { chunks.push(chunk); res.write(chunk); }
+        res.end();
+      } else {
+        chunks.push(Buffer.from(await upstreamRes.arrayBuffer()));
+      }
+    } catch (err) {
+      if (!clientGone) throw err;
+      truncated = true; // aborted mid-body: meter what we saw, flagged as an estimate
     }
 
-    const text = Buffer.concat(chunks).toString('utf8');
+    const raw = Buffer.concat(chunks); // bytes pass through untouched; text decoding is only for metering
+    const upstreamIsJson = /application\/json/i.test(upstreamRes.headers.get('content-type') ?? '');
     let usage = null, responseModel = model;
     try {
-      if (isSse) usage = provider.usageFromStream(text);
-      else if (upstreamRes.ok) { const json = JSON.parse(text); usage = provider.usageFromJson(json); responseModel = json.model ?? model; }
-    } catch { /* non-JSON upstream body (e.g. HTML error page) */ }
+      if (isSse) usage = provider.usageFromStream(raw.toString('utf8'));
+      else if (upstreamRes.ok && upstreamIsJson) { const json = JSON.parse(raw.toString('utf8')); usage = provider.usageFromJson(json); responseModel = json.model ?? model; }
+    } catch { /* malformed upstream body */ }
 
-    const estimated = upstreamRes.ok && !usage;
-    const cost = estimated ? estimateUsd : costUsd(responseModel, usage);
-    store.record({ keyId: key.id, runId, provider: provider.name, model: responseModel, fingerprint, inputTokens: usage?.input ?? 0, outputTokens: usage?.output ?? 0, costUsd: cost, estimated, status: upstreamRes.status, latencyMs: Date.now() - started });
+    const estimated = (upstreamRes.ok && !usage) || truncated;
+    const cost = usage ? costUsd(responseModel, usage) : (upstreamRes.ok ? estimateUsd : 0);
+    store.record({ keyId: key.id, runId, provider: provider.name, model: responseModel, fingerprint, inputTokens: usage?.input ?? 0, outputTokens: usage?.output ?? 0, costUsd: cost, estimated, status: truncated ? 499 : upstreamRes.status, latencyMs: Date.now() - started });
+    if (truncated) return;
 
     const after = store.snapshot(key.id, { runId });
     const check = postCheck({ key, snapshot: after });
@@ -112,14 +124,14 @@ export function createProxyHandler({ store, config, fetchImpl = fetch }) {
       const budget = key.policy.monthly_budget_usd;
       res.writeHead(upstreamRes.status, {
         ...resHeaders,
-        'content-length': String(Buffer.byteLength(text)),
+        'content-length': String(raw.length),
         'x-agentfuse-key': key.id,
         'x-agentfuse-cost-usd': cost.toFixed(6),
         'x-agentfuse-month-spend-usd': after.monthUsd.toFixed(4),
         ...(budget != null ? { 'x-agentfuse-month-remaining-usd': Math.max(0, budget - after.monthUsd).toFixed(4) } : {}),
         ...(check.trip ? { 'x-agentfuse-tripped': check.reason } : {}),
       });
-      res.end(text);
+      res.end(raw);
     }
   };
 }

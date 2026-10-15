@@ -9,6 +9,7 @@
     "./log": "./src/log.js",
     "./notify": "./src/notify.js",
     "./html": "./src/html.js",
-    "./stripe": "./src/stripe.js"
+    "./stripe": "./src/stripe.js",
+    "./runtime": "./src/runtime.js"
   }
 }

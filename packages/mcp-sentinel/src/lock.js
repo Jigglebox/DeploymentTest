@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 
 const stable = (v) => JSON.stringify(v, Object.keys(flatten(v)).sort());
 function flatten(v, out = {}) { if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) { out[k] = 1; flatten(x, out); } return out; }
-export const toolHash = (t) => createHash('sha256').update(stable({ name: t.name, description: t.description ?? '', inputSchema: t.inputSchema ?? t.input_schema ?? {} })).digest('hex').slice(0, 24);
+export const toolHash = (t) => createHash('sha256').update(stable({ name: t.name, title: t.title ?? '', description: t.description ?? '', inputSchema: t.inputSchema ?? t.input_schema ?? {}, outputSchema: t.outputSchema ?? null, annotations: t.annotations ?? null })).digest('hex').slice(0, 24);
 
 export function buildLock(results) {
   const servers = {};

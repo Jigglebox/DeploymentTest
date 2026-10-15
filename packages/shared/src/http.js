@@ -80,10 +80,14 @@ export function createApp(router, { onError } = {}) {
   });
 }
 
-/** Bearer/admin token check helper. */
-export function requireToken(req, expected, headerName = 'authorization') {
-  if (!expected) return; // auth disabled (dev mode)
-  const raw = req.headers[headerName] ?? '';
-  const token = String(raw).replace(/^Bearer\s+/i, '');
-  if (token !== expected) throw new HttpError(401, 'unauthorized');
+/** Admin auth: `Authorization: Bearer <token>` or `?token=` (for dashboard links/forms). Disabled when no token is configured. */
+export function requireToken(req, expected, url) {
+  if (!expected) return;
+  const bearer = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+  if (bearer === expected || url?.searchParams.get('token') === expected) return;
+  throw new HttpError(401, 'unauthorized');
 }
+/** Query-string suffix that carries the dashboard token through links and form actions. */
+export const tokenQs = (url, expected) => (expected ? `?token=${encodeURIComponent(url.searchParams.get('token') ?? '')}` : '');
+export const redirect = (res, to) => { res.writeHead(303, { location: to }); res.end(); };
+export async function readForm(req) { return Object.fromEntries(new URLSearchParams((await readBody(req)).toString('utf8'))); }

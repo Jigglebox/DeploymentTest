@@ -9,6 +9,14 @@ export function fakeUpstream() {
     const body = raw ? JSON.parse(raw) : {};
     calls.push({ path: req.url, headers: req.headers, body });
     const outTokens = body.max_tokens ?? 100;
+    if (req.url.startsWith('/v1/audio/speech')) {
+      res.writeHead(200, { 'content-type': 'audio/mpeg' });
+      return res.end(Buffer.from([0xff, 0xfb, 0x90, 0x00, 0xfe]));
+    }
+    if (req.url.startsWith('/v1/chat/completions') && body.model === 'gpt-4o-cached') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ id: 'c2', model: body.model, choices: [], usage: { prompt_tokens: 1000, completion_tokens: 0, prompt_tokens_details: { cached_tokens: 1000 } } }));
+    }
     if (req.url.startsWith('/v1/chat/completions')) {
       if (body.stream) {
         res.writeHead(200, { 'content-type': 'text/event-stream' });

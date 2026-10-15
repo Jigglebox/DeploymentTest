@@ -22,7 +22,12 @@ export class Engine {
   // ---------- Stripe webhook ingestion ----------
   async handleEvent(event) {
     if (this.store.seenEvent(event.id)) return { duplicate: true };
-    this.store.markEvent(event.id, event.type);
+    const result = await this.dispatch(event);
+    this.store.markEvent(event.id, event.type); // only after success, so a failed handler gets Stripe's redelivery
+    return result;
+  }
+
+  async dispatch(event) {
     const obj = event.data?.object ?? {};
     switch (event.type) {
       case 'invoice.payment_failed': return this.onPaymentFailed(obj, event.account);
@@ -32,8 +37,12 @@ export class Engine {
       case 'invoice.marked_uncollectible':
       case 'invoice.deleted': return this.closeByInvoice(obj.id, 'lost', 'stripe:' + event.type);
       case 'customer.subscription.deleted': return this.onSubscriptionDeleted(obj);
-      case 'payment_method.attached':
-      case 'customer.updated': return this.onPaymentMethodChanged(obj);
+      case 'payment_method.attached': return this.onPaymentMethodChanged(obj);
+      case 'customer.updated': {
+        // Only a default payment method change means "card fixed"; balance/metadata edits must not trigger charges.
+        const prev = event.data?.previous_attributes ?? {};
+        return ('invoice_settings' in prev || 'default_source' in prev) ? this.onPaymentMethodChanged(obj) : { ignored: 'customer.updated without payment method change' };
+      }
       default: return { ignored: event.type };
     }
   }
@@ -82,8 +91,9 @@ export class Engine {
     if (!customerId) return { ignored: 'no customer' };
     const results = [];
     for (const c of this.store.openCasesForCustomer(customerId)) {
+      this.store.clearHardDecline(c.id); // a new card is not the declined card
       this.store.action(c.id, 'card_updated', {});
-      results.push(await this.retry(c, 'card_updated'));
+      results.push(await this.retry(this.store.getCase(c.id), 'card_updated'));
     }
     return { retried: results };
   }
@@ -117,7 +127,7 @@ export class Engine {
         // Invoice state moved under us; re-sync from Stripe.
         const inv = await this.stripe.invoice(c.invoice_id).catch(() => null);
         if (inv?.paid) { await this.markRecovered(this.store.getCase(c.id), 'retry:resync'); return { paid: true }; }
-        if (inv && ['void', 'uncollectible', 'deleted'].includes(inv.status)) { this.store.closeCase(c.id, 'lost'); return { paid: false, lost: true }; }
+        if (inv && ['void', 'uncollectible', 'deleted'].includes(inv.status)) { this.store.closeCase(c.id, 'lost'); this.store.action(c.id, 'closed', { status: 'lost', by: 'stripe:' + inv.status }); return { paid: false, lost: true }; }
       }
       const hard = HARD_DECLINES.has(err.declineCode);
       this.store.bumpAttempt(c.id, { failureCode: err.declineCode ?? err.code ?? null, failureMessage: err.message, hardDecline: hard });
@@ -126,8 +136,8 @@ export class Engine {
     }
   }
 
+  /** Billing Portal sessions expire quickly, so every email gets a fresh link; the latest is kept for the dashboard. */
   async portalUrl(c) {
-    if (c.portal_url) return c.portal_url;
     if (!c.customer_id) return this.config.business.returnUrl;
     try {
       const session = await this.stripe.cardUpdateSession(c.customer_id, this.config.business.returnUrl);
@@ -156,7 +166,7 @@ export class Engine {
     const result = { step: c.step_index };
     if (step.retry) {
       if (c.hard_decline) { this.store.action(c.id, 'retry_skipped', { reason: 'hard decline; waiting for new card' }); result.retry = 'skipped'; }
-      else { const r = await this.retry(c, `step${c.step_index}`); result.retry = r; if (r.paid) return result; }
+      else { const r = await this.retry(c, `step${c.step_index}`); result.retry = r; if (r.paid || r.lost) return result; }
     }
     if (step.email) { await this.sendEmail(c, step.email).catch((e) => { log.warn('email failed', { case: c.id, error: e.message }); result.emailError = e.message; }); result.email = step.email; }
     const next = this.campaign[c.step_index + 1];

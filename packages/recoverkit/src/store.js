@@ -87,6 +87,7 @@ export class Store {
   advance(id, stepIndex, nextActionAt) { this.q.advance.run(stepIndex, nextActionAt, id); }
   bumpAttempt(id, { failureCode = null, failureMessage = null, hardDecline = false } = {}) { this.q.bumpAttempt.run(failureCode, failureMessage, hardDecline ? 1 : 0, id); }
   setPortalUrl(id, url) { this.q.setPortal.run(url, id); }
+  clearHardDecline(id) { this.db.prepare('UPDATE cases SET hard_decline=0 WHERE id=?').run(id); }
   closeCase(id, status, { recoveredBy = null, at = nowIso() } = {}) { this.q.close.run(status, at, status === 'recovered' ? at : null, recoveredBy, id); }
   action(caseId, type, detail = {}) { this.q.insertAction.run(caseId, type, JSON.stringify(detail), nowIso()); }
   actionsFor(caseId) { return this.q.actionsFor.all(caseId).map((a) => ({ ...a, detail: JSON.parse(a.detail ?? '{}') })); }
