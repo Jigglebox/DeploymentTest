@@ -8,6 +8,9 @@ export const config = {
   publicUrl: env('RECOVERKIT_PUBLIC_URL', `http://localhost:${num('PORT', 8788)}`),
   stripeSecretKey: env('STRIPE_SECRET_KEY', ''),
   stripeWebhookSecret: env('STRIPE_WEBHOOK_SECRET', ''),
+  // Hosted / multi-merchant mode (Stripe Connect Standard): platform client id + Connect webhook endpoint secret.
+  stripeClientId: env('STRIPE_CLIENT_ID', ''),
+  stripeConnectWebhookSecret: env('STRIPE_CONNECT_WEBHOOK_SECRET', ''),
   business: {
     name: env('RECOVERKIT_BUSINESS_NAME', 'Your Company'),
     supportEmail: env('RECOVERKIT_SUPPORT_EMAIL', 'support@example.com'),

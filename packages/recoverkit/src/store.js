@@ -37,6 +37,15 @@ const MIGRATIONS = [
    );
    CREATE INDEX actions_case ON actions(case_id);
    CREATE TABLE stripe_events (id TEXT PRIMARY KEY, type TEXT NOT NULL, received_at TEXT NOT NULL);`,
+  `CREATE TABLE accounts (
+     id TEXT PRIMARY KEY,
+     name TEXT,
+     email TEXT,
+     livemode INTEGER NOT NULL DEFAULT 1,
+     status TEXT NOT NULL DEFAULT 'connected',
+     connected_at TEXT NOT NULL
+   );
+   CREATE TABLE oauth_states (state TEXT PRIMARY KEY, created_at TEXT NOT NULL);`,
 ];
 
 export class Store {
@@ -93,6 +102,31 @@ export class Store {
   actionsFor(caseId) { return this.q.actionsFor.all(caseId).map((a) => ({ ...a, detail: JSON.parse(a.detail ?? '{}') })); }
   seenEvent(id) { return Boolean(this.q.seenEvent.get(id)); }
   markEvent(id, type) { this.q.markEvent.run(id, type, nowIso()); }
+  // ---- Stripe Connect accounts ----
+  upsertAccount({ id, name = null, email = null, livemode = true }) {
+    this.db.prepare(`INSERT INTO accounts (id,name,email,livemode,status,connected_at) VALUES (?,?,?,?,'connected',?)
+                     ON CONFLICT(id) DO UPDATE SET name=COALESCE(excluded.name,name), email=COALESCE(excluded.email,email), livemode=excluded.livemode, status='connected'`).run(id, name, email, livemode ? 1 : 0, nowIso());
+    return this.getAccount(id);
+  }
+  getAccount(id) { return this.db.prepare('SELECT * FROM accounts WHERE id=?').get(id) ?? null; }
+  listAccounts() { return this.db.prepare('SELECT * FROM accounts ORDER BY connected_at DESC').all(); }
+  disconnectAccount(id) { this.db.prepare("UPDATE accounts SET status='disconnected' WHERE id=?").run(id); }
+  newOauthState(state) { this.db.prepare('INSERT INTO oauth_states (state,created_at) VALUES (?,?)').run(state, nowIso()); }
+  consumeOauthState(state, maxAgeMs = 15 * 60_000) {
+    const row = this.db.prepare('SELECT created_at FROM oauth_states WHERE state=?').get(state);
+    this.db.prepare('DELETE FROM oauth_states WHERE state=? OR created_at<?').run(state, new Date(Date.now() - maxAgeMs).toISOString());
+    return Boolean(row) && Date.now() - Date.parse(row.created_at) <= maxAgeMs;
+  }
+  /** Recovered revenue and fee per connected account this month: what each merchant owes. */
+  statsByAccount(now = new Date()) {
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+    return this.db.prepare(`SELECT account, COUNT(*) AS cases_n,
+        SUM(CASE WHEN status='open' THEN 1 ELSE 0 END) AS open_n,
+        SUM(CASE WHEN status='recovered' THEN amount_cents ELSE 0 END) AS recovered_cents,
+        SUM(CASE WHEN status='recovered' AND recovered_at>=? THEN amount_cents ELSE 0 END) AS recovered_month_cents
+      FROM cases GROUP BY account ORDER BY recovered_month_cents DESC`).all(monthStart);
+  }
+
   stats(now = new Date()) {
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
     const s = this.q.stats.get(monthStart);

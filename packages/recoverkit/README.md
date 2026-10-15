@@ -28,6 +28,10 @@ RECOVERKIT_ADMIN_TOKEN=change-me node --no-warnings=ExperimentalWarning packages
 
 Local testing: `stripe listen --forward-to localhost:8788/webhooks/stripe` then `stripe trigger invoice.payment_failed`.
 
+## Hosted mode: Stripe Connect
+
+Set `STRIPE_CLIENT_ID` (your Connect platform `ca_...`), `STRIPE_SECRET_KEY` (platform key) and `STRIPE_CONNECT_WEBHOOK_SECRET` (a Connect webhook endpoint for the same events). The dashboard shows **Connect a Stripe account**; merchants approve on stripe.com and come back connected. Every case is bound to its merchant's account, retries and portal links run as that account, and `/api/accounts` reports recovered revenue and the fee owed per merchant. `account.application.deauthorized` disconnects them.
+
 ## Pricing
 
 **20% of recovered revenue.** $0 setup, $0 monthly. Fee shown live in the dashboard. (`RECOVERKIT_FEE_PCT` is configurable for self-hosters.) Merchants recovering >$5k/mo can switch to a flat $99/mo.

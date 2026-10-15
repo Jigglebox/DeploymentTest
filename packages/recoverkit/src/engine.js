@@ -18,6 +18,8 @@ export class Engine {
   constructor({ store, stripe, mailer, config, campaign = DEFAULT_CAMPAIGN, now = () => new Date(), fetchImpl = fetch }) {
     Object.assign(this, { store, stripe, mailer, config, campaign, now, fetchImpl });
   }
+  /** Stripe client acting as the merchant that owns the case (Connect) or as ourselves (single-tenant). */
+  stripeFor(account) { return this.stripe.withAccount ? this.stripe.withAccount(account) : this.stripe; }
 
   // ---------- Stripe webhook ingestion ----------
   async handleEvent(event) {
@@ -30,13 +32,14 @@ export class Engine {
   async dispatch(event) {
     const obj = event.data?.object ?? {};
     switch (event.type) {
-      case 'invoice.payment_failed': return this.onPaymentFailed(obj, event.account);
+      case 'invoice.payment_failed': return this.onPaymentFailed(obj, event.account ?? 'self');
       case 'invoice.paid':
       case 'invoice.payment_succeeded': return this.onPaid(obj);
       case 'invoice.voided':
       case 'invoice.marked_uncollectible':
       case 'invoice.deleted': return this.closeByInvoice(obj.id, 'lost', 'stripe:' + event.type);
       case 'customer.subscription.deleted': return this.onSubscriptionDeleted(obj);
+      case 'account.application.deauthorized': if (event.account) this.store.disconnectAccount(event.account); return { disconnected: event.account ?? null };
       case 'payment_method.attached': return this.onPaymentMethodChanged(obj);
       case 'customer.updated': {
         // Only a default payment method change means "card fixed"; balance/metadata edits must not trigger charges.
@@ -118,14 +121,14 @@ export class Engine {
   async retry(c, trigger) {
     const key = `rk-${c.id}-${c.attempts}-${trigger}`;
     try {
-      const inv = await this.stripe.payInvoice(c.invoice_id, key);
+      const inv = await this.stripeFor(c.account).payInvoice(c.invoice_id, key);
       this.store.action(c.id, 'retry', { trigger, result: inv.status ?? 'paid' });
       if (inv.paid || inv.status === 'paid') { await this.markRecovered(this.store.getCase(c.id), `retry:${trigger}`); return { paid: true }; }
       return { paid: false, status: inv.status };
     } catch (err) {
       if (err instanceof StripeError && /already paid|No such invoice|not open/i.test(err.message)) {
         // Invoice state moved under us; re-sync from Stripe.
-        const inv = await this.stripe.invoice(c.invoice_id).catch(() => null);
+        const inv = await this.stripeFor(c.account).invoice(c.invoice_id).catch(() => null);
         if (inv?.paid) { await this.markRecovered(this.store.getCase(c.id), 'retry:resync'); return { paid: true }; }
         if (inv && ['void', 'uncollectible', 'deleted'].includes(inv.status)) { this.store.closeCase(c.id, 'lost'); this.store.action(c.id, 'closed', { status: 'lost', by: 'stripe:' + inv.status }); return { paid: false, lost: true }; }
       }
@@ -140,7 +143,7 @@ export class Engine {
   async portalUrl(c) {
     if (!c.customer_id) return this.config.business.returnUrl;
     try {
-      const session = await this.stripe.cardUpdateSession(c.customer_id, this.config.business.returnUrl);
+      const session = await this.stripeFor(c.account).cardUpdateSession(c.customer_id, this.config.business.returnUrl);
       this.store.setPortalUrl(c.id, session.url);
       return session.url;
     } catch (err) {

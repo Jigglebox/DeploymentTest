@@ -8,6 +8,7 @@ import { Stripe, verifyWebhook } from '@jigglebox/shared/stripe';
 import { Engine } from './engine.js';
 import { consoleMailer, resendMailer } from './emails.js';
 import { registerAdmin } from './admin.js';
+import { registerConnect } from './connect.js';
 
 export function buildServer(overrides = {}) {
   const config = { ...defaultConfig, ...overrides, business: { ...defaultConfig.business, ...(overrides.business ?? {}) } };
@@ -19,13 +20,18 @@ export function buildServer(overrides = {}) {
 
   router.post('/webhooks/stripe', async (req, res) => {
     const raw = (await readBody(req)).toString('utf8');
-    let event;
-    try { event = verifyWebhook(raw, req.headers['stripe-signature'], config.stripeWebhookSecret, { now: engine.now().getTime() }); }
-    catch (err) { log.warn('webhook rejected', { error: err.message }); return sendJson(res, 400, { error: err.message }); }
+    // One endpoint serves both the account webhook (single-tenant) and the Connect webhook (hosted); each has its own secret.
+    let event, lastErr;
+    for (const secret of [config.stripeWebhookSecret, config.stripeConnectWebhookSecret].filter(Boolean)) {
+      try { event = verifyWebhook(raw, req.headers['stripe-signature'], secret, { now: engine.now().getTime() }); break; }
+      catch (err) { lastErr = err; }
+    }
+    if (!event) { log.warn('webhook rejected', { error: lastErr?.message ?? 'no webhook secret configured' }); return sendJson(res, 400, { error: lastErr?.message ?? 'no webhook secret configured' }); }
     const result = await engine.handleEvent(event);
     sendJson(res, 200, { received: true, ...result });
   });
   registerAdmin(router, { store, engine, config });
+  registerConnect(router, { store, stripe, config });
 
   const server = createApp(router, { onError: (err) => log.error('unhandled', { error: err.message, stack: err.stack }) });
   let timer = null;

@@ -23,6 +23,8 @@ export function registerAdmin(router, { store, engine, config }) {
     auth(req, url);
     const s = withFee(store.stats());
     const cases = store.listCases();
+    const accounts = store.listAccounts();
+    const byAccount = Object.fromEntries(store.statsByAccount().map((r) => [r.account, r]));
     const body = `
       <div class="grid">
         <div class="tile"><div class="k">Recovered this month</div><div class="v">${money(s.recovered_month_cents)}</div></div>
@@ -31,6 +33,10 @@ export function registerAdmin(router, { store, engine, config }) {
         <div class="tile"><div class="k">Recovery rate</div><div class="v">${s.recovery_rate == null ? '—' : Math.round(s.recovery_rate * 100) + '%'}</div></div>
         <div class="tile"><div class="k">Your RecoverKit fee (${s.fee_pct}% of recovered)</div><div class="v">${money(s.fee_month_cents)}</div></div>
       </div>
+      ${config.stripeClientId ? `<p><a class="btn" href="/connect/start${q(url)}">Connect a Stripe account</a> <span class="muted">${accounts.length} connected</span></p>` : ''}
+      ${accounts.length ? `<table style="margin-bottom:20px"><thead><tr><th>Merchant</th><th>Mode</th><th>Status</th><th>Open cases</th><th>Recovered (month)</th><th>Fee owed</th></tr></thead><tbody>
+        ${accounts.map((a) => { const st = byAccount[a.id] ?? {}; return `<tr><td>${esc(a.name ?? a.id)}<div class="muted"><code>${esc(a.id)}</code></div></td><td>${a.livemode ? 'live' : 'test'}</td><td>${pill(a.status === 'connected' ? 'recovered' : 'lost').replace('recovered', 'connected').replace('lost', 'disconnected')}</td><td>${st.open_n ?? 0}</td><td>${money(st.recovered_month_cents)}</td><td>${money(Math.round((st.recovered_month_cents ?? 0) * config.feePct / 100))}</td></tr>`; }).join('')}
+      </tbody></table>` : ''}
       <table><thead><tr><th>Customer</th><th>Amount</th><th>Status</th><th>Decline</th><th>Step</th><th>Next action</th><th>Opened</th></tr></thead><tbody>
       ${cases.map((c) => `<tr><td><a href="/cases/${c.id}${q(url)}">${esc(c.customer_email ?? c.customer_id ?? '?')}</a></td><td>${money(c.amount_cents)}</td><td>${pill(c.status)}</td>
         <td>${esc(c.failure_code ?? '')}${c.hard_decline ? ' <span class="pill bad">hard</span>' : ''}</td><td>${c.step_index}/${engine.campaign.length}</td>

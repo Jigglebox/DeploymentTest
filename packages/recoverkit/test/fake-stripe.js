@@ -4,14 +4,17 @@ import { StripeError } from '@jigglebox/shared/stripe';
 export function fakeStripe() {
   const invoices = new Map();
   const calls = [];
-  return {
-    invoices, calls,
+  const api = {
+    invoices, calls, boundAccount: null,
+    withAccount(id) { const bound = Object.create(api); bound.boundAccount = id && id !== 'self' ? id : null; return bound; },
+    async oauthToken(code) { calls.push({ method: 'oauthToken', code }); if (code === 'bad') throw new StripeError(400, { error: { message: 'Authorization code is invalid' } }); return { stripe_user_id: 'acct_merchant1', livemode: false }; },
+    async account() { return { id: this.boundAccount, email: 'owner@merchant.example', business_profile: { name: 'Merchant One' } }; },
     seed(id, inv) { invoices.set(id, { id, object: 'invoice', paid: false, status: 'open', ...inv }); },
     /** next retry outcome per invoice: 'paid' | { declineCode, message } */
     outcomes: new Map(),
     async invoice(id) { const i = invoices.get(id); if (!i) throw new StripeError(404, { error: { message: `No such invoice: ${id}` } }); return i; },
     async payInvoice(id, idem) {
-      calls.push({ method: 'payInvoice', id, idem });
+      calls.push({ method: 'payInvoice', id, idem, account: this.boundAccount });
       const inv = invoices.get(id);
       if (!inv) throw new StripeError(404, { error: { message: `No such invoice: ${id}` } });
       if (inv.paid) throw new StripeError(400, { error: { message: 'Invoice is already paid' } });
@@ -20,8 +23,9 @@ export function fakeStripe() {
       throw new StripeError(402, { error: { code: 'card_declined', decline_code: o.declineCode, message: o.message } });
     },
     async customer(id) { return { id, email: `${id}@example.com` }; },
-    async cardUpdateSession(customer, return_url) { calls.push({ method: 'cardUpdateSession', customer }); return { url: `https://billing.stripe.com/session/${customer}` }; },
+    async cardUpdateSession(customer, return_url) { calls.push({ method: 'cardUpdateSession', customer, account: this.boundAccount }); return { url: `https://billing.stripe.com/session/${customer}` }; },
   };
+  return api;
 }
 
 export const failedInvoiceEvent = (over = {}) => ({

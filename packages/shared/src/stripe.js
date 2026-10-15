@@ -18,11 +18,14 @@ export function formEncode(obj, prefix = '') {
 }
 
 export class Stripe {
-  constructor(secretKey, { fetchImpl = fetch, baseUrl = 'https://api.stripe.com' } = {}) {
-    this.secretKey = secretKey; this.fetch = fetchImpl; this.baseUrl = baseUrl;
+  constructor(secretKey, { fetchImpl = fetch, baseUrl = 'https://api.stripe.com', account = null } = {}) {
+    this.secretKey = secretKey; this.fetch = fetchImpl; this.baseUrl = baseUrl; this.account = account;
   }
+  /** Same credentials, acting on a connected account (Stripe Connect `Stripe-Account` header). */
+  withAccount(accountId) { return accountId && accountId !== 'self' ? new Stripe(this.secretKey, { fetchImpl: this.fetch, baseUrl: this.baseUrl, account: accountId }) : this; }
   async request(method, path, params, { idempotencyKey } = {}) {
     const headers = { authorization: `Bearer ${this.secretKey}`, 'stripe-version': '2025-08-27.basil' };
+    if (this.account) headers['stripe-account'] = this.account;
     if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
     let url = this.baseUrl + path, body;
     if (method === 'GET' && params) url += '?' + formEncode(params);
@@ -39,6 +42,14 @@ export class Stripe {
   invoice(id) { return this.get(`/v1/invoices/${id}`, { 'expand[0]': 'customer', 'expand[1]': 'subscription' }); }
   payInvoice(id, idempotencyKey) { return this.post(`/v1/invoices/${id}/pay`, {}, { idempotencyKey }); }
   customer(id) { return this.get(`/v1/customers/${id}`); }
+  account(id = '') { return this.get(`/v1/accounts/${id}`); }
+  /** Stripe Connect (Standard) OAuth: exchange the authorization code for the connected account id. */
+  async oauthToken(code) {
+    const res = await this.fetch('https://connect.stripe.com/oauth/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: formEncode({ client_secret: this.secretKey, grant_type: 'authorization_code', code }) });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || json.error) throw new StripeError(res.status, { error: { message: json.error_description ?? json.error ?? `oauth ${res.status}` } });
+    return json; // { stripe_user_id, scope, livemode, ... }
+  }
   /** Hosted page where the customer updates their card; Stripe handles PCI. */
   cardUpdateSession(customerId, returnUrl) {
     return this.post('/v1/billing_portal/sessions', { customer: customerId, return_url: returnUrl, flow_data: { type: 'payment_method_update' } });
