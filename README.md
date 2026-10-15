@@ -26,6 +26,8 @@ npm run mcp-sentinel -- scan .mcp.json
 
 Docker: `docker compose up` starts AgentFuse and RecoverKit with persistent volumes.
 
+Marketing site: static pages in `site/` (deploy anywhere; no build step). CI: `.github/workflows/ci.yml` runs the suite and a dogfood scan with mcp-sentinel.
+
 ## Repository layout
 
 ```

@@ -1,0 +1,35 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RecoverKit</title><meta name="description" content="Failed-payment recovery for Stripe subscriptions. Pay 20% of what we recover, nothing otherwise."><link rel="stylesheet" href="site.css"></head><body>
+<header><a class="brand" href="index.html">Jigglebox</a><nav><a href="agentfuse.html">AgentFuse</a><a href="recoverkit.html">RecoverKit</a><a href="mcp-sentinel.html">mcp-sentinel</a></nav></header>
+<main>
+<section class="hero"><h1>Involuntary churn is money you already lost.<br>We win it back and keep 20%.</h1>
+<p class="lead">Connect one Stripe webhook. RecoverKit opens a case for every failed subscription invoice and runs a 21-day campaign: retries timed for bank approval, plain billing emails with a hosted card-update link, and an instant retry the moment the customer fixes their card.</p>
+<a class="cta" href="#start">Connect Stripe</a> <a class="cta secondary" href="#pricing">Pricing</a></section>
+<div class="facts">
+  <div class="fact"><b>5–9%</b><span>of subscription revenue is lost to failed payments that nobody chases.</span></div>
+  <div class="fact"><b>$0</b><span>up front. If nothing is recovered, there is nothing to pay.</span></div>
+  <div class="fact"><b>0</b><span>retries on expired, lost or stolen cards. Pointless retries hurt your processor standing; we send a card-update link instead.</span></div>
+</div>
+<h2 class="section" id="start">Setup</h2>
+<ol class="steps">
+<li>Create a restricted Stripe key: Invoices write, Customers read, Billing portal write.</li>
+<li>Add a webhook for <code>invoice.payment_failed</code>, <code>invoice.paid</code>, <code>customer.subscription.deleted</code>, <code>payment_method.attached</code>.</li>
+<li>Add a sending domain. Emails go out from your billing address, in your name.</li>
+</ol>
+<h2 class="section">The campaign</h2>
+<ol class="steps">
+<li><b>Day 0</b> — "Your payment didn't go through" with a one-click card-update link. Access continues.</li>
+<li><b>Day 3</b> — retry at 10:00 UTC, reminder email.</li>
+<li><b>Day 7</b> — retry, "subscription at risk".</li>
+<li><b>Day 14</b> — retry, final notice.</li>
+<li><b>Day 21</b> — case closed as lost; nothing further is sent.</li>
+</ol>
+<h2 class="section" id="pricing">Pricing</h2>
+<div class="tiers">
+  <div class="tier hl"><h3>Performance</h3><div class="amt">20%</div><ul><li>of recovered revenue</li><li>No setup fee, no monthly fee</li><li>Fee shown live in your dashboard</li></ul></div>
+  <div class="tier"><h3>Flat</h3><div class="amt">$99<span style="font-size:14px">/mo</span></div><ul><li>For merchants recovering over $5k/mo</li><li>Same product, capped cost</li></ul></div>
+</div>
+<p class="lead">At $20k MRR with 6% involuntary churn there is about $1,200/month at stake. A flat $169 tool is a bet. A 20% success fee is not.</p>
+</main>
+<footer>© 2026 Jigglebox</footer>
+</body></html>

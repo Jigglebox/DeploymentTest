@@ -1,0 +1,20 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm ci
+      - run: npm test
+      - name: mcp-sentinel self-scan (dogfood)
+        run: |
+          cat > /tmp/mcp.json <<'JSON'
+          {"mcpServers":{"fixture":{"command":"node","args":["packages/mcp-sentinel/test/fixtures/fake-server.js"],"env":{"MODE":"clean"}}}}
+          JSON
+          node packages/mcp-sentinel/src/cli.js scan /tmp/mcp.json --lock /tmp/mcp-sentinel.lock.json
