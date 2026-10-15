@@ -1,0 +1,13 @@
+{
+  "name": "@jigglebox/shared",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./db": "./src/db.js",
+    "./http": "./src/http.js",
+    "./log": "./src/log.js",
+    "./notify": "./src/notify.js",
+    "./html": "./src/html.js"
+  }
+}

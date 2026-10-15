@@ -1,0 +1,13 @@
+{
+  "name": "agentfuse",
+  "version": "0.1.0",
+  "description": "Circuit breaker for AI agent spend: a drop-in LLM proxy with hard budget stops, loop detection and burn-rate alerts.",
+  "type": "module",
+  "private": true,
+  "bin": { "agentfuse": "./src/server.js" },
+  "scripts": {
+    "start": "node --no-warnings=ExperimentalWarning src/server.js",
+    "test": "node --no-warnings=ExperimentalWarning --test test/*.test.js"
+  },
+  "dependencies": { "@jigglebox/shared": "*" }
+}
