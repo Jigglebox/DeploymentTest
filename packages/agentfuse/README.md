@@ -1,0 +1,77 @@
+# AgentFuse — the circuit breaker for AI agent spend
+
+> Alerts tell you after the money is gone. AgentFuse returns a `402` before the next call leaves your network.
+
+A drop-in proxy for the OpenAI and Anthropic APIs. Point your SDK at it, give each agent its own key with a budget, and AgentFuse meters every request, blocks the one that would breach the cap, trips a breaker when something loops, and pages you.
+
+## What it does
+
+- **Hard budgets** per key: monthly, daily and per-run (`X-AgentFuse-Run` header). Enforced inline, not by a cron that reads a billing export.
+- **Pre-flight blocking**: estimates a request's cost from prompt size and `max_tokens` and refuses it *before* forwarding if it would cross the cap. `preflight: strict` assumes worst case.
+- **Loop detection**: N identical requests within a window → breaker opens. The $47k incident was four agents repeating themselves for 11 days.
+- **Breaker semantics**: a tripped key stays blocked until a human resumes it in the dashboard or API. Webhook (Slack-compatible) on trip, 80% threshold and abnormal burn rate.
+- **Exact metering** for streamed and non-streamed responses on both providers (OpenAI chat + responses APIs, Anthropic messages incl. cache tokens). Response headers carry `x-agentfuse-cost-usd` and `x-agentfuse-month-remaining-usd`.
+- **Model allow-lists** and per-minute rate limits.
+- Dashboard + JSON admin API. SQLite storage, zero native deps, one process.
+
+## Two-minute setup
+
+```bash
+OPENAI_API_KEY=sk-... ANTHROPIC_API_KEY=sk-ant-... AGENTFUSE_ADMIN_TOKEN=change-me \
+  node --no-warnings=ExperimentalWarning packages/agentfuse/src/server.js
+# open http://localhost:8787/?token=change-me  → create a key → copy af_live_...
+```
+
+Then in your agent (no code changes):
+
+```bash
+# OpenAI SDKs
+OPENAI_BASE_URL=http://localhost:8787/openai/v1   OPENAI_API_KEY=af_live_...
+# Anthropic SDKs
+ANTHROPIC_BASE_URL=http://localhost:8787/anthropic ANTHROPIC_API_KEY=af_live_...
+```
+
+Blocked calls return HTTP 402 and a JSON error both SDKs surface cleanly:
+
+```json
+{ "error": { "code": "budget_would_exceed", "message": "AgentFuse blocked this request: budget_would_exceed (this call (~$0.4100) would push monthly spend past $50). Resume at http://localhost:8787/keys/key_…", "scope": "monthly", "limit": 50, "spent": 49.7 } }
+```
+
+## Admin API
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/keys` | `{name, policy:{monthly_budget_usd, daily_budget_usd, per_run_budget_usd, rpm_limit, loop_max_repeats, loop_window_sec, allowed_models, preflight}}` → returns `raw_key` once |
+| GET | `/api/keys`, `/api/keys/:id` | keys with live spend snapshot; recent ledger |
+| PUT | `/api/keys/:id/policy` | change limits |
+| POST | `/api/keys/:id/trip`, `/resume` | open/close the breaker |
+| GET | `/api/events`, `/api/usage` | audit trail; totals by model |
+
+Auth: `Authorization: Bearer $AGENTFUSE_ADMIN_TOKEN` (or `?token=` for the dashboard).
+
+## Configuration
+
+| Env | Default | |
+|---|---|---|
+| `PORT` | 8787 | |
+| `AGENTFUSE_DB` | `./data/agentfuse.db` | SQLite file |
+| `AGENTFUSE_ADMIN_TOKEN` | *(empty = open)* | set this in production |
+| `AGENTFUSE_PUBLIC_URL` | `http://localhost:8787` | used in error messages/alerts |
+| `AGENTFUSE_ALERT_WEBHOOK` | | Slack or any JSON endpoint |
+| `AGENTFUSE_PLAN` | `free` | `free`=3 keys, `pro`=25, `team`=unlimited |
+| `OPENAI_API_KEY`, `OPENAI_BASE_URL` | | real upstream credentials (never given to agents) |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` | | |
+| `AGENTFUSE_PRICING_JSON` | | override/add model prices, `{"model":{"input":$/M,"output":$/M}}` |
+| `AGENTFUSE_UNKNOWN_INPUT_PRICE` / `_OUTPUT_PRICE` | 5 / 25 | conservative price for unknown models |
+
+## Pricing
+
+| | Free | Pro $29/mo | Team $99/mo |
+|---|---|---|---|
+| Agent keys | 3 | 25 | unlimited |
+| Hosting | self-host | hosted or self-host | hosted, SSO, audit export |
+| Alerts | webhook | webhook + email + Slack app | + PagerDuty |
+
+## Tests
+
+`npm test` — policy engine unit tests and end-to-end proxy tests against a fake upstream (metering, pre-flight block, trip/resume, loop detection, per-run budgets, streaming on both providers, plan gating).
