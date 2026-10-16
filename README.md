@@ -6,7 +6,7 @@ Built from a market-data pass on 15 Oct 2026 (see [docs/MARKET_ANALYSIS.md](docs
 |---|---|---|---|
 | [**AgentFuse**](packages/agentfuse) | Drop-in LLM proxy that hard-stops agent spend: per-key/per-run budgets, loop detection, burn-rate alerts | Free (3 keys) · Pro $29/mo · Team $99/mo | Runaway-agent bills are the #1 fear in agent ops; only 44% of orgs have AI spend guardrails (Gartner, Mar 2026). Alerts ≠ enforcement. |
 | [**RecoverKit**](packages/recoverkit) | Stripe failed-payment recovery: smart retries, hosted card-update links, 4-step email campaign | **20% of recovered revenue, $0 upfront** | Most-cited high-margin micro-SaaS niche (70–90% margins). Performance pricing makes it a no-risk purchase. |
-| [**mcp-sentinel**](packages/mcp-sentinel) | Scans MCP servers for tool poisoning / prompt injection; locks tool definitions; fails CI on rug-pulls | Free CLI (MIT) → hosted continuous monitoring $19/dev/mo | OWASP MCP Top 10 lists tool poisoning; 36.5% attack success rate across 45 live servers (MCPTox). Free wedge into AgentFuse. |
+| [**mcp-sentinel**](packages/mcp-sentinel) + [**Sentinel Cloud**](packages/sentinel-cloud) | Scans MCP servers for tool poisoning / prompt injection; locks tool definitions; fails CI on rug-pulls. Cloud: scan history, scheduled re-scans of HTTP servers, drift alerts | Free CLI (MIT) → Sentinel Cloud $19/dev/mo | OWASP MCP Top 10 lists tool poisoning; 36.5% attack success rate across 45 live servers (MCPTox). Free wedge into AgentFuse. |
 
 ## Quickstart
 
@@ -20,8 +20,9 @@ OPENAI_API_KEY=sk-... ANTHROPIC_API_KEY=sk-ant-... npm run start:agentfuse
 # RecoverKit (http://localhost:8788)
 STRIPE_SECRET_KEY=rk_... STRIPE_WEBHOOK_SECRET=whsec_... npm run start:recoverkit
 
-# mcp-sentinel
+# mcp-sentinel + Sentinel Cloud (http://localhost:8789)
 npm run mcp-sentinel -- scan .mcp.json
+npm run start:sentinel-cloud
 ```
 
 Docker: `docker compose up` starts AgentFuse and RecoverKit with persistent volumes.
@@ -35,6 +36,7 @@ packages/shared        one HTTP toolkit, one SQLite wrapper, one dashboard style
 packages/agentfuse     proxy + policy engine + admin API + dashboard
 packages/recoverkit    Stripe webhook ingestion + recovery engine + campaign + dashboard
 packages/mcp-sentinel  MCP client + static analyzer + lockfile + CLI + GitHub Action
+packages/sentinel-cloud hosted monitoring: report ingestion, scheduled scans, drift alerts, dashboard
 docs/                  market analysis and go-to-market notes
 ```
 

@@ -18,6 +18,7 @@ function usage() {
 
 Usage:
   mcp-sentinel scan [config.json] [--json] [--fail-on high|medium|low] [--lock mcp-sentinel.lock.json] [--update-lock] [--only name,name]
+                    [--report <url> --report-token <token>]   # send results to Sentinel Cloud (or SENTINEL_REPORT_URL / SENTINEL_REPORT_TOKEN)
   mcp-sentinel analyze tools.json        # analyze a saved tools/list result (no servers started)
 
 Config: any {"mcpServers": {...}} file (Claude Desktop, Claude Code .mcp.json, Cursor, VS Code). Defaults to the first one found.
@@ -25,7 +26,7 @@ Exit codes: 0 clean · 1 findings at/above --fail-on (default: high) or lock dri
 }
 
 function parseArgs(argv) {
-  const out = { _: [], failOn: 'high', lock: 'mcp-sentinel.lock.json', json: false, updateLock: false, only: null };
+  const out = { _: [], failOn: 'high', lock: 'mcp-sentinel.lock.json', json: false, updateLock: false, only: null, report: process.env.SENTINEL_REPORT_URL ?? null, reportToken: process.env.SENTINEL_REPORT_TOKEN ?? null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--json') out.json = true;
@@ -33,6 +34,8 @@ function parseArgs(argv) {
     else if (a === '--fail-on') out.failOn = argv[++i];
     else if (a === '--lock') out.lock = argv[++i];
     else if (a === '--only') out.only = argv[++i].split(',');
+    else if (a === '--report') out.report = argv[++i];
+    else if (a === '--report-token') out.reportToken = argv[++i];
     else if (a === '-h' || a === '--help') out.help = true;
     else out._.push(a);
   }
@@ -86,6 +89,13 @@ async function main() {
   const lock = cmd === 'scan' ? readLock(args.lock) : null;
   const changes = lock ? diffLock(lock, results) : [];
   if (cmd === 'scan' && (args.updateLock || !lock)) { writeLock(args.lock, buildLock(results)); if (!args.json) console.error(`${lock ? 'Updated' : 'Created'} ${args.lock}`); }
+
+  if (args.report) {
+    try {
+      const r = await fetch(args.report, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${args.reportToken ?? ''}` }, body: JSON.stringify({ results, changes, generatedAt: new Date().toISOString() }) });
+      if (!args.json) console.error(r.ok ? `Reported to ${args.report}` : `Report to ${args.report} failed: HTTP ${r.status}`);
+    } catch (err) { if (!args.json) console.error(`Report to ${args.report} failed: ${err.message}`); }
+  }
 
   const threshold = SEVERITY_RANK[args.failOn] ?? 3;
   const failing = results.some((r) => r.error || maxSeverity(r.findings) >= threshold) || (changes.length > 0 && !args.updateLock);

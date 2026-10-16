@@ -3,12 +3,17 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "workspaces": ["packages/*"],
-  "engines": { "node": ">=22.5" },
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.5"
+  },
   "scripts": {
     "test": "node --no-warnings=ExperimentalWarning --test packages/*/test/*.test.js",
     "start:agentfuse": "node --no-warnings=ExperimentalWarning packages/agentfuse/src/server.js",
     "start:recoverkit": "node --no-warnings=ExperimentalWarning packages/recoverkit/src/server.js",
-    "mcp-sentinel": "node --no-warnings=ExperimentalWarning packages/mcp-sentinel/src/cli.js"
+    "mcp-sentinel": "node --no-warnings=ExperimentalWarning packages/mcp-sentinel/src/cli.js",
+    "start:sentinel-cloud": "node --no-warnings=ExperimentalWarning packages/sentinel-cloud/src/server.js"
   }
 }

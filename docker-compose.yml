@@ -19,6 +19,14 @@ services:
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
     volumes: ["recoverkit-data:/app/data"]
+  sentinel-cloud:
+    build: { context: ., args: { PRODUCT: sentinel-cloud } }
+    ports: ["8789:8789"]
+    environment:
+      SENTINEL_DB: /app/data/sentinel-cloud.db
+      SENTINEL_ADMIN_TOKEN: ${SENTINEL_ADMIN_TOKEN:-change-me}
+    volumes: ["sentinel-data:/app/data"]
 volumes:
+  sentinel-data: {}
   agentfuse-data: {}
   recoverkit-data: {}

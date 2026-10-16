@@ -1,0 +1,12 @@
+{
+  "name": "sentinel-cloud",
+  "version": "0.1.0",
+  "description": "Hosted continuous monitoring for mcp-sentinel: scan history per project, rug-pull drift alerts, scheduled re-scans of HTTP MCP servers.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node --no-warnings=ExperimentalWarning src/server.js",
+    "test": "node --no-warnings=ExperimentalWarning --test test/*.test.js"
+  },
+  "dependencies": { "@jigglebox/shared": "*", "mcp-sentinel": "*" }
+}
