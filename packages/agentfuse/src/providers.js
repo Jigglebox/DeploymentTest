@@ -26,11 +26,11 @@ export const providers = {
     prefix: '/openai',
     authHeaders: (apiKey) => ({ authorization: `Bearer ${apiKey}` }),
     stripHeaders: ['authorization', 'x-api-key'],
-    /** Make sure streamed responses include a usage chunk. */
-    prepareBody: (body) => {
-      if (body?.stream === true && !body.stream_options) return { ...body, stream_options: { include_usage: true } };
-      return body;
-    },
+    // Only inference routes are reachable with a virtual key. Everything else (files, fine-tuning, batches,
+    // vector stores, admin) would let a budget-capped agent act with the real account key.
+    routes: [['POST', '/v1/chat/completions'], ['POST', '/v1/responses'], ['POST', '/v1/embeddings'], ['GET', '/v1/models']],
+    /** Streamed responses must include a usage chunk; the client may not opt out of metering. */
+    prepareBody: (body) => (body?.stream === true ? { ...body, stream_options: { ...(body.stream_options ?? {}), include_usage: true } } : body),
     usageFromJson: (json) => openaiUsage(json?.usage ?? json?.response?.usage),
     usageFromStream: (text) => {
       let usage = null;
@@ -46,6 +46,7 @@ export const providers = {
     prefix: '/anthropic',
     authHeaders: (apiKey) => ({ 'x-api-key': apiKey }),
     stripHeaders: ['authorization', 'x-api-key'],
+    routes: [['POST', '/v1/messages'], ['POST', '/v1/messages/count_tokens'], ['GET', '/v1/models']],
     prepareBody: (body) => body,
     usageFromJson: (json) => json?.usage ? {
       input: json.usage.input_tokens ?? 0,
@@ -68,6 +69,13 @@ export const providers = {
     },
   },
 };
+
+/** Is this method+path on the provider's allow-list (plus any AGENTFUSE_EXTRA_ROUTES_JSON entries)? */
+export function routeAllowed(provider, method, upstreamPath, extra = []) {
+  const path = upstreamPath.replace(/\/+$/, '');
+  return [...provider.routes, ...extra.filter((r) => r[2] === provider.name).map((r) => [r[0], r[1]])]
+    .some(([m, p]) => m === method && (p === path || (p.endsWith('/*') && path.startsWith(p.slice(0, -1)))));
+}
 
 /** Resolve provider from the proxied path, e.g. '/openai/v1/chat/completions'. */
 export function resolveProvider(pathname) {

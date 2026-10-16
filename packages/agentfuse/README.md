@@ -12,6 +12,8 @@ A drop-in proxy for the OpenAI and Anthropic APIs. Point your SDK at it, give ea
 - **Breaker semantics**: a tripped key stays blocked until a human resumes it in the dashboard or API. Webhook (Slack-compatible) on trip, 80% threshold and abnormal burn rate.
 - **Exact metering** for streamed and non-streamed responses on both providers (OpenAI chat + responses APIs, Anthropic messages incl. cache tokens). Response headers carry `x-agentfuse-cost-usd` and `x-agentfuse-month-remaining-usd`.
 - **Model allow-lists** and per-minute rate limits.
+- **Route allow-list.** A virtual key can reach only inference routes (`chat/completions`, `responses`, `embeddings`, `models`; Anthropic `messages`, `count_tokens`, `models`). Files, fine-tuning, batches, vector stores and admin endpoints return 403, so a leaked agent key never becomes the account key. Extend with `AGENTFUSE_EXTRA_ROUTES_JSON='[["POST","/v1/audio/speech","openai"]]'`.
+- **Metering cannot be opted out of.** `stream_options.include_usage` is forced on; a successful response without usage is charged at the worst case (full `max_tokens`).
 - Dashboard + JSON admin API. SQLite storage, zero native deps, one process.
 
 ## Two-minute setup

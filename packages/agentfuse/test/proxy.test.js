@@ -9,7 +9,7 @@ const alertFetch = async (url, init) => { alerts.push(JSON.parse(init.body)); re
 
 before(async () => {
   up = await fakeUpstream();
-  app = buildServer({ dbPath: ':memory:', adminToken: 'admin', plan: 'team', alertWebhook: 'http://alerts.local/hook', publicUrl: 'http://af.local',
+  app = buildServer({ dbPath: ':memory:', adminToken: 'admin', plan: 'team', extraRoutes: [['POST', '/v1/audio/speech', 'openai']], alertWebhook: 'http://alerts.local/hook', publicUrl: 'http://af.local',
     providers: { openai: { baseUrl: up.url, apiKey: 'sk-real' }, anthropic: { baseUrl: up.url, apiKey: 'ant-real' } },
     fetchImpl: (url, init) => (String(url).startsWith('http://alerts.local') ? alertFetch(url, init) : fetch(url, init)) });
   store = app.store;
@@ -119,6 +119,38 @@ test('OpenAI cached prompt tokens are billed once at the cached rate', async () 
   const created = await admin('/api/keys', { method: 'POST', body: JSON.stringify({ name: 'cached', policy: { monthly_budget_usd: 1000 } }) });
   const r = await chat(created.json.raw_key, { model: 'gpt-4o-cached', messages: [{ role: 'user', content: 'c' }] });
   assert.equal(r.headers.get('x-agentfuse-cost-usd'), '0.001250'); // 1000 cached @ $1.25/M, nothing at $2.50/M
+});
+
+test('virtual keys cannot reach non-inference provider routes', async () => {
+  const created = await admin('/api/keys', { method: 'POST', body: JSON.stringify({ name: 'scoped', policy: { monthly_budget_usd: 1000 } }) });
+  const h = { authorization: `Bearer ${created.json.raw_key}`, 'content-type': 'application/json' };
+  const before = up.calls.length;
+  for (const [method, path] of [['GET', '/openai/v1/files'], ['DELETE', '/openai/v1/files/file-1'], ['POST', '/openai/v1/fine_tuning/jobs'], ['POST', '/openai/v1/batches'], ['POST', '/anthropic/v1/messages/batches'], ['DELETE', '/anthropic/v1/files/f1']]) {
+    const r = await fetch(base + path, { method, headers: h, body: method === 'GET' ? undefined : '{}' });
+    assert.equal(r.status, 403, `${method} ${path}`);
+    assert.equal((await r.json()).error.code, 'route_not_allowed');
+  }
+  assert.equal(up.calls.length, before, 'nothing reached the provider');
+  assert.equal((await fetch(base + '/openai/v1/chat/completions', { method: 'POST', headers: { ...h, 'content-type': 'text/plain' }, body: 'not json' })).status, 400);
+});
+
+test('client cannot opt out of streaming usage; missing usage is billed at worst case', async () => {
+  const created = await admin('/api/keys', { method: 'POST', body: JSON.stringify({ name: 'sneaky', policy: { monthly_budget_usd: 1000 } }) });
+  const raw = created.json.raw_key;
+  const r = await chat(raw, { model: 'gpt-4o-mini', messages: [{ role: 'user', content: 's' }], max_tokens: 100, stream: true, stream_options: { include_usage: false } });
+  await r.text();
+  assert.equal(up.calls.at(-1).body.stream_options.include_usage, true, 'include_usage forced on');
+  const r2 = await chat(raw, { model: 'gpt-4o-nousage', messages: [{ role: 'user', content: 'x'.repeat(400) }], max_tokens: 40000 });
+  assert.equal(r2.status, 200);
+  // strict estimate: ~100 prompt tokens @ $2.5/M + 40000 output @ $10/M ≈ $0.4003 (gpt-4o price via prefix)
+  assert.ok(Number(r2.headers.get('x-agentfuse-cost-usd')) > 0.39, r2.headers.get('x-agentfuse-cost-usd'));
+});
+
+test('allowed_models denies requests that name no model', async () => {
+  const created = await admin('/api/keys', { method: 'POST', body: JSON.stringify({ name: 'strict-models', policy: { allowed_models: ['gpt-4o-mini'] } }) });
+  const r = await chat(created.json.raw_key, { messages: [{ role: 'user', content: 'no model' }] });
+  assert.equal(r.status, 403);
+  assert.equal((await r.json()).error.code, 'model_not_allowed');
 });
 
 test('plan limit gates key creation', async () => {

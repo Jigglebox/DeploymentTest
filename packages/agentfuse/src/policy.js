@@ -9,8 +9,8 @@ export function decide({ key, snapshot, estimateUsd = 0, model = null }) {
   if (key.status === 'tripped') return deny('circuit_open', { detail: key.tripped_reason });
   if (key.status === 'disabled') return deny('key_disabled');
 
-  if (p.allowed_models?.length && model && !p.allowed_models.some((m) => model.startsWith(m))) {
-    return deny('model_not_allowed', { detail: `model ${model} is not in allowed_models` });
+  if (p.allowed_models?.length && (!model || !p.allowed_models.some((m) => model.startsWith(m)))) {
+    return deny('model_not_allowed', { detail: model ? `model ${model} is not in allowed_models` : 'request does not name a model' });
   }
   if (p.rpm_limit && snapshot.requestsLastMinute >= p.rpm_limit) {
     return deny('rate_limited', { detail: `${snapshot.requestsLastMinute} requests in the last 60s (limit ${p.rpm_limit})` });

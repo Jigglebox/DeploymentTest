@@ -3,7 +3,7 @@
 import { readBody, sendJson } from '@jigglebox/shared/http';
 import { postWebhook } from '@jigglebox/shared/notify';
 import { log } from '@jigglebox/shared/log';
-import { resolveProvider, extractClientKey } from './providers.js';
+import { resolveProvider, extractClientKey, routeAllowed } from './providers.js';
 import { decide, postCheck } from './policy.js';
 import { costUsd, estimateRequestCost } from './pricing.js';
 import { fingerprintBody } from './store.js';
@@ -33,6 +33,9 @@ export function createProxyHandler({ store, config, fetchImpl = fetch }) {
     const resolved = resolveProvider(url.pathname);
     if (!resolved) return sendJson(res, 404, { error: { message: 'unknown provider path; use /openai/v1/... or /anthropic/v1/...' } });
     const { provider, upstreamPath } = resolved;
+    if (!routeAllowed(provider, req.method, upstreamPath, config.extraRoutes ?? [])) {
+      return sendJson(res, 403, { type: 'error', error: { type: 'agentfuse_route_not_allowed', code: 'route_not_allowed', message: `AgentFuse only proxies inference routes (${provider.routes.map((r) => r.join(' ')).join(', ')}); ${req.method} ${upstreamPath} is not forwarded` } });
+    }
 
     const rawKey = extractClientKey(req.headers);
     const key = rawKey ? store.findKeyByRaw(rawKey) : null;
@@ -42,6 +45,7 @@ export function createProxyHandler({ store, config, fetchImpl = fetch }) {
     const isJson = /application\/json/i.test(req.headers['content-type'] ?? '') && rawBody.length > 0;
     let body = null;
     if (isJson) { try { body = JSON.parse(rawBody.toString('utf8')); } catch { return sendJson(res, 400, { error: { message: 'invalid JSON' } }); } }
+    if (req.method === 'POST' && (!body || typeof body !== 'object')) return sendJson(res, 400, { error: { message: 'metered routes require a JSON body' } });
 
     const model = body?.model ?? null;
     const runId = req.headers['x-agentfuse-run'] ?? body?.metadata?.run_id ?? null;
@@ -111,8 +115,9 @@ export function createProxyHandler({ store, config, fetchImpl = fetch }) {
       else if (upstreamRes.ok && upstreamIsJson) { const json = JSON.parse(raw.toString('utf8')); usage = provider.usageFromJson(json); responseModel = json.model ?? model; }
     } catch { /* malformed upstream body */ }
 
+    // No usage in a successful response: charge the worst case so a client cannot profit from suppressing it.
     const estimated = (upstreamRes.ok && !usage) || truncated;
-    const cost = usage ? costUsd(responseModel, usage) : (upstreamRes.ok ? estimateUsd : 0);
+    const cost = usage ? costUsd(responseModel, usage) : (upstreamRes.ok && body ? estimateRequestCost(model, body, 'strict') : 0);
     store.record({ keyId: key.id, runId, provider: provider.name, model: responseModel, fingerprint, inputTokens: usage?.input ?? 0, outputTokens: usage?.output ?? 0, costUsd: cost, estimated, status: truncated ? 499 : upstreamRes.status, latencyMs: Date.now() - started });
     if (truncated) return;
 
