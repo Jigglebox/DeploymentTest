@@ -43,6 +43,11 @@ export class Stripe {
   payInvoice(id, idempotencyKey) { return this.post(`/v1/invoices/${id}/pay`, {}, { idempotencyKey }); }
   customer(id) { return this.get(`/v1/customers/${id}`); }
   account(id = '') { return this.get(`/v1/accounts/${id}`); }
+  createCustomer({ email, name, metadata = {} }) { return this.post('/v1/customers', { email, name, metadata }); }
+  createInvoiceItem({ customer, amountCents, currency = 'usd', description, metadata = {} }) { return this.post('/v1/invoiceitems', { customer, amount: amountCents, currency, description, metadata }); }
+  /** Emailed invoice, due in N days, auto-advanced by Stripe (reminders, dunning). */
+  createInvoice({ customer, daysUntilDue = 14, description, metadata = {}, idempotencyKey }) { return this.post('/v1/invoices', { customer, collection_method: 'send_invoice', days_until_due: daysUntilDue, auto_advance: true, description, metadata, pending_invoice_items_behavior: 'include' }, { idempotencyKey }); }
+  finalizeInvoice(id) { return this.post(`/v1/invoices/${id}/finalize`, {}); }
   /** Stripe Connect (Standard) OAuth: exchange the authorization code for the connected account id. */
   async oauthToken(code) {
     const res = await this.fetch('https://connect.stripe.com/oauth/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: formEncode({ client_secret: this.secretKey, grant_type: 'authorization_code', code }) });

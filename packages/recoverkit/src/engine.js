@@ -15,8 +15,8 @@ function scheduleAt(openedAtIso, dayOffset) {
 }
 
 export class Engine {
-  constructor({ store, stripe, mailer, config, campaign = DEFAULT_CAMPAIGN, now = () => new Date(), fetchImpl = fetch }) {
-    Object.assign(this, { store, stripe, mailer, config, campaign, now, fetchImpl });
+  constructor({ store, stripe, mailer, config, campaign = DEFAULT_CAMPAIGN, now = () => new Date(), fetchImpl = fetch, fees = null }) {
+    Object.assign(this, { store, stripe, mailer, config, campaign, now, fetchImpl, fees });
   }
   /** Stripe client acting as the merchant that owns the case (Connect) or as ourselves (single-tenant). */
   stripeFor(account) { return this.stripe.withAccount ? this.stripe.withAccount(account) : this.stripe; }
@@ -31,6 +31,8 @@ export class Engine {
 
   async dispatch(event) {
     const obj = event.data?.object ?? {};
+    // Our own fee invoices (platform account, no `account` field) share the endpoint; settle them first.
+    if (!event.account && event.type.startsWith('invoice.') && this.fees?.onInvoiceEvent(event.type, obj)) return { fee_invoice: obj.id };
     switch (event.type) {
       case 'invoice.payment_failed': return this.onPaymentFailed(obj, event.account ?? 'self');
       case 'invoice.paid':

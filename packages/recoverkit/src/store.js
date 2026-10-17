@@ -46,6 +46,22 @@ const MIGRATIONS = [
      connected_at TEXT NOT NULL
    );
    CREATE TABLE oauth_states (state TEXT PRIMARY KEY, created_at TEXT NOT NULL);`,
+  `ALTER TABLE accounts ADD COLUMN platform_customer_id TEXT;
+   CREATE TABLE fees (
+     id TEXT PRIMARY KEY,
+     account TEXT NOT NULL,
+     period TEXT NOT NULL,
+     recovered_cents INTEGER NOT NULL,
+     fee_cents INTEGER NOT NULL,
+     currency TEXT NOT NULL DEFAULT 'usd',
+     stripe_invoice_id TEXT,
+     hosted_invoice_url TEXT,
+     status TEXT NOT NULL DEFAULT 'invoiced',
+     created_at TEXT NOT NULL,
+     paid_at TEXT,
+     UNIQUE(account, period)
+   );
+   CREATE TABLE fee_runs (period TEXT PRIMARY KEY, ran_at TEXT NOT NULL, invoices INTEGER NOT NULL);`,
 ];
 
 export class Store {
@@ -117,6 +133,19 @@ export class Store {
     this.db.prepare('DELETE FROM oauth_states WHERE state=? OR created_at<?').run(state, new Date(Date.now() - maxAgeMs).toISOString());
     return Boolean(row) && Date.now() - Date.parse(row.created_at) <= maxAgeMs;
   }
+  setPlatformCustomer(accountId, customerId) { this.db.prepare('UPDATE accounts SET platform_customer_id=? WHERE id=?').run(customerId, accountId); }
+  /** Recovered revenue per account within [from, to) by recovered_at; the basis for a fee invoice. */
+  recoveredByAccount(fromIso, toIso) {
+    return this.db.prepare("SELECT account, currency, SUM(amount_cents) AS recovered_cents, COUNT(*) AS n FROM cases WHERE status='recovered' AND recovered_at>=? AND recovered_at<? GROUP BY account, currency").all(fromIso, toIso);
+  }
+  insertFee(f) { this.db.prepare('INSERT INTO fees (id,account,period,recovered_cents,fee_cents,currency,stripe_invoice_id,hosted_invoice_url,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(f.id, f.account, f.period, f.recoveredCents, f.feeCents, f.currency ?? 'usd', f.stripeInvoiceId ?? null, f.hostedInvoiceUrl ?? null, f.status ?? 'invoiced', nowIso()); }
+  feeFor(account, period) { return this.db.prepare('SELECT * FROM fees WHERE account=? AND period=?').get(account, period) ?? null; }
+  feeByInvoice(invoiceId) { return this.db.prepare('SELECT * FROM fees WHERE stripe_invoice_id=?').get(invoiceId) ?? null; }
+  markFee(id, status, paidAt = null) { this.db.prepare('UPDATE fees SET status=?, paid_at=COALESCE(?,paid_at) WHERE id=?').run(status, paidAt, id); }
+  listFees(limit = 100) { return this.db.prepare('SELECT * FROM fees ORDER BY period DESC, fee_cents DESC LIMIT ?').all(limit); }
+  feeRun(period) { return this.db.prepare('SELECT * FROM fee_runs WHERE period=?').get(period) ?? null; }
+  recordFeeRun(period, invoices) { this.db.prepare('INSERT OR REPLACE INTO fee_runs (period,ran_at,invoices) VALUES (?,?,?)').run(period, nowIso(), invoices); }
+
   /** Recovered revenue and fee per connected account this month: what each merchant owes. */
   statsByAccount(now = new Date()) {
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();

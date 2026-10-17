@@ -19,6 +19,8 @@ export const config = {
   },
   resendApiKey: env('RESEND_API_KEY', ''),
   feePct: num('RECOVERKIT_FEE_PCT', 20),          // performance pricing: % of recovered revenue
+  feeCapCents: num('RECOVERKIT_FEE_CAP_CENTS', 0), // optional monthly cap per merchant (0 = none); the "flat $99" plan
+  feeDueDays: num('RECOVERKIT_FEE_DUE_DAYS', 14),
   tickSeconds: num('RECOVERKIT_TICK_SECONDS', 300),
   alertWebhook: env('RECOVERKIT_ALERT_WEBHOOK', ''),
 };

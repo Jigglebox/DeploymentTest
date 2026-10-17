@@ -8,6 +8,11 @@ export function fakeStripe() {
     invoices, calls, boundAccount: null,
     withAccount(id) { const bound = Object.create(api); bound.boundAccount = id && id !== 'self' ? id : null; return bound; },
     async oauthToken(code) { calls.push({ method: 'oauthToken', code }); if (code === 'bad') throw new StripeError(400, { error: { message: 'Authorization code is invalid' } }); return { stripe_user_id: 'acct_merchant1', livemode: false }; },
+    customers: [], invoiceItems: [], platformInvoices: [],
+    async createCustomer(p) { const c = { id: 'cus_pf_' + (this.customers.length + 1), ...p }; this.customers.push(c); calls.push({ method: 'createCustomer', ...p }); return c; },
+    async createInvoiceItem(p) { this.invoiceItems.push(p); calls.push({ method: 'createInvoiceItem', ...p }); return { id: 'ii_' + this.invoiceItems.length }; },
+    async createInvoice(p) { const inv = { id: 'in_fee_' + (this.platformInvoices.length + 1), status: 'draft', ...p }; this.platformInvoices.push(inv); calls.push({ method: 'createInvoice', ...p }); return inv; },
+    async finalizeInvoice(id) { const inv = this.platformInvoices.find((i) => i.id === id); inv.status = 'open'; inv.hosted_invoice_url = `https://invoice.stripe.com/i/${id}`; calls.push({ method: 'finalizeInvoice', id }); return inv; },
     async account() { return { id: this.boundAccount, email: 'owner@merchant.example', business_profile: { name: 'Merchant One' } }; },
     seed(id, inv) { invoices.set(id, { id, object: 'invoice', paid: false, status: 'open', ...inv }); },
     /** next retry outcome per invoice: 'paid' | { declineCode, message } */

@@ -5,7 +5,7 @@ Built from a market-data pass on 15 Oct 2026 (see [docs/MARKET_ANALYSIS.md](docs
 | Product | One-liner | Pricing model | Why it sells |
 |---|---|---|---|
 | [**AgentFuse**](packages/agentfuse) | Drop-in LLM proxy that hard-stops agent spend: per-key/per-run budgets, loop detection, burn-rate alerts. Single-tenant self-host or hosted multi-tenant SaaS with org signup and sealed per-org provider keys | Free (3 keys) · Pro $29/mo · Team $99/mo | Runaway-agent bills are the #1 fear in agent ops; only 44% of orgs have AI spend guardrails (Gartner, Mar 2026). Alerts ≠ enforcement. |
-| [**RecoverKit**](packages/recoverkit) | Stripe failed-payment recovery: smart retries, hosted card-update links, 4-step email campaign | **20% of recovered revenue, $0 upfront** | Most-cited high-margin micro-SaaS niche (70–90% margins). Performance pricing makes it a no-risk purchase. |
+| [**RecoverKit**](packages/recoverkit) | Stripe failed-payment recovery: smart retries, hosted card-update links, 4-step email campaign, Stripe Connect onboarding, monthly fee invoicing | **20% of recovered revenue, $0 upfront** | Most-cited high-margin micro-SaaS niche (70–90% margins). Performance pricing makes it a no-risk purchase. |
 | [**mcp-sentinel**](packages/mcp-sentinel) + [**Sentinel Cloud**](packages/sentinel-cloud) | Scans MCP servers for tool poisoning / prompt injection; locks tool definitions; fails CI on rug-pulls. Cloud: scan history, scheduled re-scans of HTTP servers, drift alerts | Free CLI (MIT) → Sentinel Cloud $19/dev/mo | OWASP MCP Top 10 lists tool poisoning; 36.5% attack success rate across 45 live servers (MCPTox). Free wedge into AgentFuse. |
 
 ## Quickstart
@@ -38,6 +38,7 @@ packages/recoverkit    Stripe webhook ingestion + recovery engine + campaign + d
 packages/mcp-sentinel  MCP client + static analyzer + lockfile + CLI + GitHub Action
 packages/sentinel-cloud hosted monitoring: report ingestion, scheduled scans, drift alerts, dashboard
 docs/                  market analysis and go-to-market notes
+examples/              SDK examples (OpenAI Python, Anthropic Node) and Stripe CLI runbook
 ```
 
 ## Go-to-market (first 30 days)

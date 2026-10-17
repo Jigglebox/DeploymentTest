@@ -9,13 +9,15 @@ import { Engine } from './engine.js';
 import { consoleMailer, resendMailer } from './emails.js';
 import { registerAdmin } from './admin.js';
 import { registerConnect } from './connect.js';
+import { FeeBilling } from './fees.js';
 
 export function buildServer(overrides = {}) {
   const config = { ...defaultConfig, ...overrides, business: { ...defaultConfig.business, ...(overrides.business ?? {}) } };
   const store = new Store(config.dbPath);
   const stripe = overrides.stripe ?? new Stripe(config.stripeSecretKey, { fetchImpl: overrides.fetchImpl ?? fetch, baseUrl: overrides.stripeBaseUrl });
   const mailer = overrides.mailer ?? (config.resendApiKey ? resendMailer(config.resendApiKey) : consoleMailer);
-  const engine = new Engine({ store, stripe, mailer, config, campaign: overrides.campaign ?? DEFAULT_CAMPAIGN, now: overrides.now, fetchImpl: overrides.fetchImpl });
+  const fees = new FeeBilling({ store, stripe, config, now: overrides.now ?? (() => new Date()) });
+  const engine = new Engine({ store, stripe, mailer, config, campaign: overrides.campaign ?? DEFAULT_CAMPAIGN, now: overrides.now, fetchImpl: overrides.fetchImpl, fees });
   const router = new Router();
 
   router.post('/webhooks/stripe', async (req, res) => {
@@ -30,14 +32,14 @@ export function buildServer(overrides = {}) {
     const result = await engine.handleEvent(event);
     sendJson(res, 200, { received: true, ...result });
   });
-  registerAdmin(router, { store, engine, config });
+  registerAdmin(router, { store, engine, config, fees });
   registerConnect(router, { store, stripe, config });
 
   const server = createApp(router, { onError: (err) => log.error('unhandled', { error: err.message, stack: err.stack }) });
   let timer = null;
-  const startScheduler = () => { timer = setInterval(() => engine.tick().catch((e) => log.error('tick failed', { error: e.message })), config.tickSeconds * 1000); timer.unref(); };
+  const startScheduler = () => { timer = setInterval(() => engine.tick().then(() => fees.tick()).catch((e) => log.error('tick failed', { error: e.message })), config.tickSeconds * 1000); timer.unref(); };
   const stop = () => { if (timer) clearInterval(timer); server.close(); };
-  return { server, store, engine, config, startScheduler, stop };
+  return { server, store, engine, fees, config, startScheduler, stop };
 }
 
 if (isMain(import.meta.url)) {

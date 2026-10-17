@@ -1,7 +1,7 @@
 import { sendJson, sendHtml, HttpError, readBody, requireToken, tokenQs, redirect } from '@jigglebox/shared/http';
 import { layout, esc, money } from '@jigglebox/shared/html';
 
-export function registerAdmin(router, { store, engine, config }) {
+export function registerAdmin(router, { store, engine, config, fees }) {
   const auth = (req, url) => requireToken(req, config.adminToken, url);
   const q = (url) => tokenQs(url, config.adminToken);
   const caseOr404 = (id) => { const c = store.getCase(id); if (!c) throw new HttpError(404, 'case not found'); return c; };
@@ -14,7 +14,9 @@ export function registerAdmin(router, { store, engine, config }) {
   router.post('/api/cases/:id/retry', async (req, res, { url, params }) => { auth(req, url); const c = caseOr404(params.id); sendJson(res, 200, await engine.retry(c, 'manual')); });
   router.post('/api/cases/:id/email', async (req, res, { url, params }) => { auth(req, url); const c = caseOr404(params.id); const t = url.searchParams.get('template') ?? 'reminder'; await engine.sendEmail(c, t); sendJson(res, 200, { sent: t }); });
   router.post('/api/cases/:id/close', (req, res, { url, params }) => { auth(req, url); caseOr404(params.id); store.closeCase(params.id, 'lost'); store.action(params.id, 'closed', { status: 'lost', by: 'manual' }); sendJson(res, 200, { closed: params.id }); });
-  router.post('/api/tick', async (req, res, { url }) => { auth(req, url); sendJson(res, 200, { ran: await engine.tick() }); });
+  router.post('/api/tick', async (req, res, { url }) => { auth(req, url); sendJson(res, 200, { ran: await engine.tick(), fees: await fees.tick() }); });
+  router.get('/api/fees', (req, res, { url }) => { auth(req, url); sendJson(res, 200, { fee_pct: config.feePct, fee_cap_cents: config.feeCapCents, fees: store.listFees() }); });
+  router.post('/api/fees/run', async (req, res, { url }) => { auth(req, url); const period = url.searchParams.get('period'); if (!/^\d{4}-\d{2}$/.test(period ?? '')) throw new HttpError(400, 'period=YYYY-MM required'); sendJson(res, 200, { period, results: await fees.run(period) }); });
 
   const nav = (url) => [{ href: '/' + q(url), label: 'Cases' }, { href: '/docs', label: 'Setup' }];
   const pill = (s) => `<span class="pill ${s === 'recovered' ? 'ok' : s === 'open' ? 'warn' : 'bad'}">${esc(s)}</span>`;
@@ -24,6 +26,7 @@ export function registerAdmin(router, { store, engine, config }) {
     const s = withFee(store.stats());
     const cases = store.listCases();
     const accounts = store.listAccounts();
+    const feeRows = store.listFees(50);
     const byAccount = Object.fromEntries(store.statsByAccount().map((r) => [r.account, r]));
     const body = `
       <div class="grid">
@@ -36,6 +39,9 @@ export function registerAdmin(router, { store, engine, config }) {
       ${config.stripeClientId ? `<p><a class="btn" href="/connect/start${q(url)}">Connect a Stripe account</a> <span class="muted">${accounts.length} connected</span></p>` : ''}
       ${accounts.length ? `<table style="margin-bottom:20px"><thead><tr><th>Merchant</th><th>Mode</th><th>Status</th><th>Open cases</th><th>Recovered (month)</th><th>Fee owed</th></tr></thead><tbody>
         ${accounts.map((a) => { const st = byAccount[a.id] ?? {}; return `<tr><td>${esc(a.name ?? a.id)}<div class="muted"><code>${esc(a.id)}</code></div></td><td>${a.livemode ? 'live' : 'test'}</td><td>${pill(a.status === 'connected' ? 'recovered' : 'lost').replace('recovered', 'connected').replace('lost', 'disconnected')}</td><td>${st.open_n ?? 0}</td><td>${money(st.recovered_month_cents)}</td><td>${money(Math.round((st.recovered_month_cents ?? 0) * config.feePct / 100))}</td></tr>`; }).join('')}
+      </tbody></table>` : ''}
+      ${feeRows.length ? `<h2>Fee invoices</h2><table style="margin-bottom:20px"><thead><tr><th>Period</th><th>Merchant</th><th>Recovered</th><th>Fee</th><th>Status</th><th></th></tr></thead><tbody>
+        ${feeRows.map((f) => `<tr><td>${esc(f.period)}</td><td>${esc(store.getAccount(f.account)?.name ?? f.account)}</td><td>${money(f.recovered_cents)}</td><td>${money(f.fee_cents)}</td><td><span class="pill ${f.status === 'paid' ? 'ok' : f.status === 'invoiced' ? 'warn' : 'bad'}">${esc(f.status)}</span></td><td>${f.hosted_invoice_url ? `<a href="${esc(f.hosted_invoice_url)}">invoice</a>` : ''}</td></tr>`).join('')}
       </tbody></table>` : ''}
       <table><thead><tr><th>Customer</th><th>Amount</th><th>Status</th><th>Decline</th><th>Step</th><th>Next action</th><th>Opened</th></tr></thead><tbody>
       ${cases.map((c) => `<tr><td><a href="/cases/${c.id}${q(url)}">${esc(c.customer_email ?? c.customer_id ?? '?')}</a></td><td>${money(c.amount_cents)}</td><td>${pill(c.status)}</td>

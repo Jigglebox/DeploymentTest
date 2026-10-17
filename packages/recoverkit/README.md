@@ -32,6 +32,10 @@ Local testing: `stripe listen --forward-to localhost:8788/webhooks/stripe` then 
 
 Set `STRIPE_CLIENT_ID` (your Connect platform `ca_...`), `STRIPE_SECRET_KEY` (platform key) and `STRIPE_CONNECT_WEBHOOK_SECRET` (a Connect webhook endpoint for the same events). The dashboard shows **Connect a Stripe account**; merchants approve on stripe.com and come back connected. Every case is bound to its merchant's account, retries and portal links run as that account, and `/api/accounts` reports recovered revenue and the fee owed per merchant. `account.application.deauthorized` disconnects them.
 
+## Getting paid: monthly fee invoices
+
+On the first scheduler tick of each month (or `POST /api/fees/run?period=YYYY-MM`), RecoverKit sums what it recovered per connected merchant in the previous month, computes the fee (`RECOVERKIT_FEE_PCT`, optionally capped by `RECOVERKIT_FEE_CAP_CENTS` for the flat plan), and issues a Stripe invoice from **your** platform account to a customer record for that merchant: emailed by Stripe, due in `RECOVERKIT_FEE_DUE_DAYS`, with Stripe's own reminders. One invoice per merchant per period (idempotent), tracked in the dashboard as invoiced → paid / overdue / void from the platform's `invoice.*` webhook events. Self-hosted single-tenant deployments are never invoiced.
+
 ## Pricing
 
 **20% of recovered revenue.** $0 setup, $0 monthly. Fee shown live in the dashboard. (`RECOVERKIT_FEE_PCT` is configurable for self-hosters.) Merchants recovering >$5k/mo can switch to a flat $99/mo.
