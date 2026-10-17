@@ -25,11 +25,11 @@ test('checkout -> webhook upgrades plan and lifts the key limit; cancellation re
   assert.equal((await hook({ id: 'evt_bad', type: 'checkout.session.completed', data: { object: {} } }).then((r) => r.status)), 200);
   assert.equal((await fetch(base + '/webhooks/stripe', { method: 'POST', body: '{}', headers: { 'stripe-signature': signPayload('{}', 'wrong') } })).status, 400);
 
-  await hook({ id: 'evt_1', type: 'checkout.session.completed', data: { object: { mode: 'subscription', customer: 'cus_9', subscription: 'sub_9', metadata: { product: 'agentfuse', plan: 'pro' }, customer_details: { email: 'ops@example.com' } } } });
+  await hook({ id: 'evt_1', type: 'checkout.session.completed', data: { object: { mode: 'subscription', customer: 'cus_9', subscription: 'sub_9', client_reference_id: 'org_default', metadata: { product: 'agentfuse', plan: 'pro', org_id: 'org_default' }, customer_details: { email: 'ops@example.com' } } } });
   const billing = await fetch(base + '/api/billing').then((r) => r.json());
   assert.equal(billing.plan, 'pro'); assert.equal(billing.subscription.customerId, 'cus_9');
   // Another product's checkout or a foreign subscription in the same Stripe account must not touch our plan.
-  await hook({ id: 'evt_x1', type: 'checkout.session.completed', data: { object: { mode: 'subscription', customer: 'cus_other', subscription: 'sub_other', metadata: { product: 'recoverkit', plan: 'team' } } } });
+  await hook({ id: 'evt_x1', type: 'checkout.session.completed', data: { object: { mode: 'subscription', customer: 'cus_other', subscription: 'sub_other', client_reference_id: 'org_default', metadata: { product: 'recoverkit', plan: 'team', org_id: 'org_default' } } } });
   await hook({ id: 'evt_x2', type: 'customer.subscription.deleted', data: { object: { id: 'sub_other' } } });
   assert.equal((await fetch(base + '/api/billing').then((r) => r.json())).plan, 'pro');
   assert.equal((await mk(4)).status, 201, 'pro plan allows more keys');

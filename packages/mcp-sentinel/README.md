@@ -49,6 +49,10 @@ Supported transports: stdio (`command`/`args`/`env`) and Streamable HTTP (`url`/
   with: { config: .mcp.json, fail-on: medium }
 ```
 
+## Releasing
+
+Tag `mcp-sentinel-vX.Y.Z` on `main`; the `Publish mcp-sentinel` workflow runs the suite and publishes to npm with provenance using the `NPM_TOKEN` repository secret.
+
 ## Pricing
 
 The CLI is MIT and free forever. **Sentinel Cloud** (roadmap): nightly re-scans of your servers, Slack alert on drift or new findings, org-wide policy, $19/developer/month, bundled free with AgentFuse Team.

@@ -41,7 +41,30 @@ const MIGRATIONS = [
      detail TEXT,
      created_at TEXT NOT NULL
    );`,
+  // v2: organisations (tenants). Every key belongs to an org; 'org_default' is the single-tenant org.
+  `CREATE TABLE orgs (
+     id TEXT PRIMARY KEY,
+     name TEXT NOT NULL,
+     email TEXT UNIQUE,
+     password_hash TEXT,
+     token_hash TEXT UNIQUE,
+     token_prefix TEXT,
+     plan TEXT,
+     billing TEXT,
+     created_at TEXT NOT NULL
+   );
+   CREATE TABLE org_providers (
+     org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+     provider TEXT NOT NULL,
+     api_key_sealed TEXT NOT NULL,
+     base_url TEXT,
+     updated_at TEXT NOT NULL,
+     PRIMARY KEY (org_id, provider)
+   );
+   ALTER TABLE keys ADD COLUMN org_id TEXT NOT NULL DEFAULT 'org_default';
+   CREATE INDEX keys_org ON keys(org_id);`,
 ];
+export const DEFAULT_ORG = 'org_default';
 
 export const hashKey = (raw) => createHash('sha256').update(raw).digest('hex');
 export const fingerprintBody = (body) => {
@@ -57,11 +80,11 @@ export class Store {
   constructor(dbPath = ':memory:') {
     this.db = openDatabase(dbPath, MIGRATIONS);
     this.q = {
-      insertKey: this.db.prepare('INSERT INTO keys (id,name,key_hash,key_prefix,policy,status,created_at) VALUES (?,?,?,?,?,?,?)'),
+      insertKey: this.db.prepare('INSERT INTO keys (id,name,key_hash,key_prefix,policy,status,created_at,org_id) VALUES (?,?,?,?,?,?,?,?)'),
       keyByHash: this.db.prepare('SELECT * FROM keys WHERE key_hash = ?'),
       keyById: this.db.prepare('SELECT * FROM keys WHERE id = ?'),
-      listKeys: this.db.prepare('SELECT * FROM keys ORDER BY created_at DESC'),
-      countKeys: this.db.prepare('SELECT COUNT(*) AS n FROM keys'),
+      listKeys: this.db.prepare('SELECT * FROM keys WHERE org_id=? ORDER BY created_at DESC'),
+      countKeys: this.db.prepare('SELECT COUNT(*) AS n FROM keys WHERE org_id=?'),
       setStatus: this.db.prepare('UPDATE keys SET status=?, tripped_reason=?, tripped_at=? WHERE id=?'),
       setPolicy: this.db.prepare('UPDATE keys SET policy=? WHERE id=?'),
       deleteKey: this.db.prepare('DELETE FROM keys WHERE id=?'),
@@ -72,25 +95,60 @@ export class Store {
       repeats: this.db.prepare('SELECT COUNT(*) AS n FROM ledger WHERE key_id=? AND fingerprint=? AND created_at>=?'),
       recentLedger: this.db.prepare('SELECT * FROM ledger WHERE key_id=? ORDER BY id DESC LIMIT ?'),
       insertEvent: this.db.prepare('INSERT INTO events (key_id,type,detail,created_at) VALUES (?,?,?,?)'),
-      recentEvents: this.db.prepare('SELECT * FROM events ORDER BY id DESC LIMIT ?'),
-      totals: this.db.prepare('SELECT COALESCE(SUM(cost_usd),0) AS usd, COUNT(*) AS n FROM ledger WHERE created_at>=?'),
-      byModel: this.db.prepare('SELECT model, COUNT(*) AS n, COALESCE(SUM(cost_usd),0) AS usd FROM ledger WHERE created_at>=? GROUP BY model ORDER BY usd DESC LIMIT 20'),
+      recentEvents: this.db.prepare('SELECT e.* FROM events e JOIN keys k ON k.id=e.key_id WHERE k.org_id=? ORDER BY e.id DESC LIMIT ?'),
+      totals: this.db.prepare('SELECT COALESCE(SUM(l.cost_usd),0) AS usd, COUNT(*) AS n FROM ledger l JOIN keys k ON k.id=l.key_id WHERE k.org_id=? AND l.created_at>=?'),
+      byModel: this.db.prepare('SELECT l.model, COUNT(*) AS n, COALESCE(SUM(l.cost_usd),0) AS usd FROM ledger l JOIN keys k ON k.id=l.key_id WHERE k.org_id=? AND l.created_at>=? GROUP BY l.model ORDER BY usd DESC LIMIT 20'),
+      insertOrg: this.db.prepare('INSERT INTO orgs (id,name,email,password_hash,token_hash,token_prefix,plan,billing,created_at) VALUES (?,?,?,?,?,?,?,?,?)'),
+      orgById: this.db.prepare('SELECT * FROM orgs WHERE id=?'),
+      orgByEmail: this.db.prepare('SELECT * FROM orgs WHERE email=?'),
+      orgByToken: this.db.prepare('SELECT * FROM orgs WHERE token_hash=?'),
+      orgBySub: this.db.prepare("SELECT * FROM orgs WHERE json_extract(billing,'$.subscriptionId')=?"),
+      setOrgPlan: this.db.prepare('UPDATE orgs SET plan=? WHERE id=?'),
+      setOrgBilling: this.db.prepare('UPDATE orgs SET billing=? WHERE id=?'),
+      upsertProvider: this.db.prepare('INSERT INTO org_providers (org_id,provider,api_key_sealed,base_url,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(org_id,provider) DO UPDATE SET api_key_sealed=excluded.api_key_sealed, base_url=excluded.base_url, updated_at=excluded.updated_at'),
+      providersFor: this.db.prepare('SELECT * FROM org_providers WHERE org_id=?'),
+      deleteProvider: this.db.prepare('DELETE FROM org_providers WHERE org_id=? AND provider=?'),
     };
   }
 
-  createKey({ name, policy = {} }) {
+  createKey({ name, policy = {}, orgId = DEFAULT_ORG }) {
     const raw = 'af_live_' + randomBytes(24).toString('base64url');
     const id = 'key_' + randomBytes(8).toString('hex');
     const merged = { ...DEFAULT_POLICY, ...policy };
-    this.q.insertKey.run(id, name, hashKey(raw), raw.slice(0, 12) + '…', JSON.stringify(merged), 'active', nowIso());
+    this.q.insertKey.run(id, name, hashKey(raw), raw.slice(0, 12) + '…', JSON.stringify(merged), 'active', nowIso(), orgId);
     return { ...this.getKey(id), raw_key: raw };
   }
+
+  // ---- organisations ----
+  _org(row) { return row ? { ...row, billing: row.billing ? JSON.parse(row.billing) : null, password_hash: undefined, token_hash: undefined } : null; }
+  ensureDefaultOrg() {
+    if (!this.q.orgById.get(DEFAULT_ORG)) this.q.insertOrg.run(DEFAULT_ORG, 'default', null, null, null, null, null, null, nowIso());
+    return this.getOrg(DEFAULT_ORG);
+  }
+  createOrg({ name, email, passwordHash }) {
+    if (this.q.orgByEmail.get(email)) throw Object.assign(new Error('an account with that email already exists'), { status: 409 });
+    const id = 'org_' + randomBytes(8).toString('hex');
+    const raw = 'af_org_' + randomBytes(24).toString('base64url');
+    this.q.insertOrg.run(id, name, email, passwordHash, hashKey(raw), raw.slice(0, 11) + '…', null, null, nowIso());
+    return { ...this.getOrg(id), raw_token: raw };
+  }
+  getOrg(id) { return this._org(this.q.orgById.get(id)); }
+  orgByEmail(email) { return this.q.orgByEmail.get(email) ?? null; } // includes password_hash, for login only
+  orgByToken(raw) { return this._org(this.q.orgByToken.get(hashKey(raw))); }
+  orgBySubscription(subId) { return this._org(this.q.orgBySub.get(subId)); }
+  setOrgPlan(orgId, plan) { this.q.setOrgPlan.run(plan, orgId); }
+  setOrgBilling(orgId, billing) { this.q.setOrgBilling.run(JSON.stringify(billing), orgId); }
+  /** Effective plan for an org: a paid subscription recorded via billing beats the env default. */
+  plan(orgId, fallback = 'free') { return this.getOrg(orgId)?.plan ?? fallback; }
+  setProvider(orgId, provider, { apiKeySealed, baseUrl = null }) { this.q.upsertProvider.run(orgId, provider, apiKeySealed, baseUrl, nowIso()); }
+  providersFor(orgId) { return this.q.providersFor.all(orgId); }
+  deleteProvider(orgId, provider) { this.q.deleteProvider.run(orgId, provider); }
 
   _hydrate(row) { return row ? { ...row, policy: JSON.parse(row.policy) } : null; }
   getKey(id) { return this._hydrate(this.q.keyById.get(id)); }
   findKeyByRaw(raw) { return this._hydrate(this.q.keyByHash.get(hashKey(raw))); }
-  listKeys() { return this.q.listKeys.all().map((r) => this._hydrate(r)); }
-  countKeys() { return this.q.countKeys.get().n; }
+  listKeys(orgId = DEFAULT_ORG) { return this.q.listKeys.all(orgId).map((r) => this._hydrate(r)); }
+  countKeys(orgId = DEFAULT_ORG) { return this.q.countKeys.get(orgId).n; }
   deleteKey(id) { this.q.deleteKey.run(id); }
   updatePolicy(id, patch) {
     const key = this.getKey(id);
@@ -106,13 +164,8 @@ export class Store {
   resume(id) { this.q.setStatus.run('active', null, null, id); this.event(id, 'resumed', {}); }
   disable(id) { this.q.setStatus.run('disabled', 'disabled by admin', nowIso(), id); this.event(id, 'disabled', {}); }
 
-  setting(key) { const row = this.db.prepare('SELECT value FROM settings WHERE key=?').get(key); return row ? JSON.parse(row.value) : null; }
-  setSetting(key, value) { this.db.prepare('INSERT INTO settings (key,value,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at').run(key, JSON.stringify(value), nowIso()); }
-  /** Effective plan: a paid subscription recorded via billing beats the env default. */
-  plan(fallback = 'free') { return this.setting('plan') ?? fallback; }
-
   event(keyId, type, detail) { this.q.insertEvent.run(keyId, type, JSON.stringify(detail), nowIso()); }
-  recentEvents(limit = 50) { return this.q.recentEvents.all(limit).map((e) => ({ ...e, detail: JSON.parse(e.detail ?? '{}') })); }
+  recentEvents(orgId = DEFAULT_ORG, limit = 50) { return this.q.recentEvents.all(orgId, limit).map((e) => ({ ...e, detail: JSON.parse(e.detail ?? '{}') })); }
 
   record(entry) {
     this.q.insertLedger.run(entry.keyId, entry.runId ?? null, entry.provider, entry.model ?? null, entry.fingerprint ?? null,
@@ -134,7 +187,7 @@ export class Store {
   }
 
   recentLedger(keyId, limit = 50) { return this.q.recentLedger.all(keyId, limit); }
-  totals(now = new Date()) { return { month: this.q.totals.get(monthStart(now)), day: this.q.totals.get(dayStart(now)), byModel: this.q.byModel.all(monthStart(now)) }; }
+  totals(orgId = DEFAULT_ORG, now = new Date()) { return { month: this.q.totals.get(orgId, monthStart(now)), day: this.q.totals.get(orgId, dayStart(now)), byModel: this.q.byModel.all(orgId, monthStart(now)) }; }
   close() { this.db.close(); }
 }
 

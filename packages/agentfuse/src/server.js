@@ -7,6 +7,7 @@ import { Store } from './store.js';
 import { createProxyHandler } from './proxy.js';
 import { registerAdmin } from './admin.js';
 import { registerBilling } from './billing.js';
+import { createAuth } from './auth.js';
 import { Stripe } from '@jigglebox/shared/stripe';
 
 export function buildServer(overrides = {}) {
@@ -14,8 +15,11 @@ export function buildServer(overrides = {}) {
   const store = new Store(config.dbPath);
   const router = new Router();
   const stripe = overrides.stripe ?? new Stripe(config.billing.secretKey);
-  registerAdmin(router, { store, config, stripe });
-  registerBilling(router, { store, config, stripe });
+  store.ensureDefaultOrg();
+  const auth = createAuth({ store, config });
+  auth.register(router);
+  registerAdmin(router, { store, config, stripe, auth });
+  registerBilling(router, { store, config, stripe, auth });
   const proxy = createProxyHandler({ store, config, fetchImpl: overrides.fetchImpl });
   router.any('/openai/*', proxy);
   router.any('/anthropic/*', proxy);
@@ -25,5 +29,5 @@ export function buildServer(overrides = {}) {
 
 if (isMain(import.meta.url)) {
   const { server, config } = buildServer();
-  server.listen(config.port, () => log.info('agentfuse listening', { port: config.port, plan: config.plan, admin_auth: Boolean(config.adminToken), openai: Boolean(config.providers.openai.apiKey), anthropic: Boolean(config.providers.anthropic.apiKey) }));
+  server.listen(config.port, () => log.info('agentfuse listening', { port: config.port, mode: config.mode, plan: config.plan, admin_auth: Boolean(config.adminToken), openai: Boolean(config.providers.openai.apiKey), anthropic: Boolean(config.providers.anthropic.apiKey) }));
 }

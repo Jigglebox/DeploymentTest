@@ -7,6 +7,7 @@ import { resolveProvider, extractClientKey, routeAllowed } from './providers.js'
 import { decide, postCheck } from './policy.js';
 import { costUsd, estimateRequestCost } from './pricing.js';
 import { fingerprintBody } from './store.js';
+import { unseal } from '@jigglebox/shared/crypto';
 
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'proxy-authorization', 'proxy-authenticate', 'host', 'content-length', 'content-encoding', 'accept-encoding']);
 const STATUS_FOR = { circuit_open: 402, budget_exceeded: 402, budget_would_exceed: 402, loop_detected: 402, key_disabled: 403, model_not_allowed: 403, rate_limited: 429 };
@@ -27,6 +28,15 @@ export function createProxyHandler({ store, config, fetchImpl = fetch }) {
   const trip = async (key, reason, detail) => {
     store.trip(key.id, reason, detail);
     await postWebhook(config.alertWebhook, { text: `AgentFuse TRIPPED key "${key.name}": ${reason} ${JSON.stringify(detail)}. Resume: ${config.publicUrl}/keys/${key.id}`, type: 'tripped', key: { id: key.id, name: key.name }, reason, ...detail }, { fetchImpl });
+  };
+
+  /** hosted: the org's own sealed credentials. single: the environment. */
+  const resolveUpstream = (orgId, providerName) => {
+    if (config.mode !== 'hosted') return config.providers[providerName];
+    const own = store.providersFor(orgId).find((p) => p.provider === providerName);
+    if (!own) return null;
+    try { return { apiKey: unseal(own.api_key_sealed, config.masterKey), baseUrl: own.base_url || config.providers[providerName].baseUrl }; }
+    catch (err) { log.error('cannot unseal provider key', { org: orgId, provider: providerName, error: err.message }); return null; }
   };
 
   return async function handleProxy(req, res, { url }) {
@@ -62,8 +72,8 @@ export function createProxyHandler({ store, config, fetchImpl = fetch }) {
     }
     for (const a of decision.alerts) alertOnce(key, a.type, a).catch(() => {});
 
-    const upstream = config.providers[provider.name];
-    if (!upstream.apiKey) return sendJson(res, 502, { error: { message: `AgentFuse has no ${provider.name} API key configured` } });
+    const upstream = resolveUpstream(key.org_id, provider.name);
+    if (!upstream?.apiKey) return sendJson(res, 502, { error: { message: `AgentFuse has no ${provider.name} API key configured${config.mode === 'hosted' ? ' for this org; add one in the dashboard' : ''}` } });
 
     const headers = {};
     for (const [k, v] of Object.entries(req.headers)) {

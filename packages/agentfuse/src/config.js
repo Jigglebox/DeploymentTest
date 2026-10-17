@@ -9,6 +9,9 @@ export const config = {
   alertWebhook: env('AGENTFUSE_ALERT_WEBHOOK', ''),
   // Plan gating for the hosted/paid tiers. free=3 keys, pro=25, team=unlimited.
   plan: env('AGENTFUSE_PLAN', 'free'),
+  // 'single': one tenant, admin token, provider keys from env.  'hosted': org signup/login, per-org provider keys sealed with the master key.
+  mode: env('AGENTFUSE_MODE', 'single'),
+  masterKey: env('AGENTFUSE_MASTER_KEY', ''),
   providers: {
     openai: { baseUrl: env('OPENAI_BASE_URL', 'https://api.openai.com'), apiKey: env('OPENAI_API_KEY', '') },
     anthropic: { baseUrl: env('ANTHROPIC_BASE_URL', 'https://api.anthropic.com'), apiKey: env('ANTHROPIC_API_KEY', '') },

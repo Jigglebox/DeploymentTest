@@ -10,6 +10,7 @@
     "./notify": "./src/notify.js",
     "./html": "./src/html.js",
     "./stripe": "./src/stripe.js",
-    "./runtime": "./src/runtime.js"
+    "./runtime": "./src/runtime.js",
+    "./crypto": "./src/crypto.js"
   }
 }

@@ -74,7 +74,19 @@ Auth: `Authorization: Bearer $AGENTFUSE_ADMIN_TOKEN` (or `?token=` for the dashb
 | Hosting | self-host | hosted or self-host | hosted, SSO, audit export |
 | Alerts | webhook | webhook + email + Slack app | + PagerDuty |
 
-## Self-serve upgrades (hosted)
+## Hosted mode (multi-tenant SaaS)
+
+`AGENTFUSE_MODE=hosted` turns one instance into a service: customers sign up at `/signup`, get a dashboard session plus an org API token (`af_org_...`), paste their own OpenAI/Anthropic keys (stored sealed with `AGENTFUSE_MASTER_KEY` using AES-256-GCM, never returned), create agent keys under their org, and upgrade their own plan. Every key, ledger row, event and budget is scoped to the org; another org gets 404 on your keys. Generate the master key once: `openssl rand -hex 32`.
+
+```bash
+AGENTFUSE_MODE=hosted AGENTFUSE_MASTER_KEY=$(openssl rand -hex 32) AGENTFUSE_PUBLIC_URL=https://fuse.example.com \
+AGENTFUSE_STRIPE_SECRET_KEY=... AGENTFUSE_STRIPE_WEBHOOK_SECRET=... AGENTFUSE_PRO_PRICE_ID=... AGENTFUSE_TEAM_PRICE_ID=... \
+node --no-warnings=ExperimentalWarning packages/agentfuse/src/server.js
+```
+
+Org API: `GET /api/me` · `GET/PUT/DELETE /api/providers/:name` · everything under `/api/keys` and `/api/billing`, authenticated with `Authorization: Bearer af_org_...` or the session cookie. Single-tenant mode (the default) is unchanged: admin token, provider keys from the environment.
+
+## Self-serve upgrades
 
 Set `AGENTFUSE_STRIPE_SECRET_KEY`, `AGENTFUSE_STRIPE_WEBHOOK_SECRET`, `AGENTFUSE_PRO_PRICE_ID`, `AGENTFUSE_TEAM_PRICE_ID` and point a Stripe webhook (`checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`) at `/webhooks/stripe`. The dashboard shows an **Upgrade** button; `POST /api/billing/checkout {plan}` returns a Checkout URL; the webhook flips the stored plan and the key limit immediately. `GET /api/billing` reports the effective plan. Self-hosters without billing keep using `AGENTFUSE_PLAN`.
 
