@@ -1,0 +1,52 @@
+# Revenue Products — three market-validated prototypes
+
+Built from a market-data pass on 15 Oct 2026 (see [docs/MARKET_ANALYSIS.md](docs/MARKET_ANALYSIS.md)). Each product targets a niche with documented willingness to pay, a cheap distribution channel, and pricing aligned to the buyer's pain. All three run on Node 22 with **zero native dependencies** (built-in SQLite), ship with a dashboard, and have an offline test suite.
+
+| Product | One-liner | Pricing model | Why it sells |
+|---|---|---|---|
+| [**AgentFuse**](packages/agentfuse) | Drop-in LLM proxy that hard-stops agent spend: per-key/per-run budgets, loop detection, burn-rate alerts. Single-tenant self-host or hosted multi-tenant SaaS with org signup and sealed per-org provider keys | Free (3 keys) · Pro $29/mo · Team $99/mo | Runaway-agent bills are the #1 fear in agent ops; only 44% of orgs have AI spend guardrails (Gartner, Mar 2026). Alerts ≠ enforcement. |
+| [**RecoverKit**](packages/recoverkit) | Stripe failed-payment recovery: smart retries, hosted card-update links, 4-step email campaign, Stripe Connect onboarding, monthly fee invoicing | **20% of recovered revenue, $0 upfront** | Most-cited high-margin micro-SaaS niche (70–90% margins). Performance pricing makes it a no-risk purchase. |
+| [**mcp-sentinel**](packages/mcp-sentinel) + [**Sentinel Cloud**](packages/sentinel-cloud) | Scans MCP servers for tool poisoning / prompt injection; locks tool definitions; fails CI on rug-pulls. Cloud: scan history, scheduled re-scans of HTTP servers, drift alerts | Free CLI (MIT) → Sentinel Cloud $19/dev/mo | OWASP MCP Top 10 lists tool poisoning; 36.5% attack success rate across 45 live servers (MCPTox). Free wedge into AgentFuse. |
+
+## Quickstart
+
+```bash
+npm install          # workspaces; no native builds
+npm test             # 40 tests, all offline (fake upstreams, fake Stripe, fake MCP server)
+
+# AgentFuse (http://localhost:8787)
+OPENAI_API_KEY=sk-... ANTHROPIC_API_KEY=sk-ant-... npm run start:agentfuse
+
+# RecoverKit (http://localhost:8788)
+STRIPE_SECRET_KEY=rk_... STRIPE_WEBHOOK_SECRET=whsec_... npm run start:recoverkit
+
+# mcp-sentinel + Sentinel Cloud (http://localhost:8789)
+npm run mcp-sentinel -- scan .mcp.json
+npm run start:sentinel-cloud
+```
+
+Docker: `docker compose up` starts AgentFuse and RecoverKit with persistent volumes.
+
+Marketing site: static pages in `site/`, live at https://jigglebox-products.vercel.app (no build step). CI: `.github/workflows/ci.yml` runs the suite and a dogfood scan with mcp-sentinel.
+
+## Repository layout
+
+```
+packages/shared        HTTP toolkit, SQLite wrapper, dashboard chrome, Stripe client, crypto, tenancy (orgs/auth), subscriptions, ops (errors/feedback/growth), mailer
+packages/agentfuse     proxy + policy engine + admin API + dashboard
+packages/recoverkit    Stripe webhook ingestion + recovery engine + campaign + dashboard
+packages/mcp-sentinel  MCP client + static analyzer + lockfile + CLI + GitHub Action
+packages/sentinel-cloud hosted monitoring: report ingestion, scheduled scans, drift alerts, dashboard
+docs/                  market analysis and go-to-market notes
+examples/              SDK examples (OpenAI Python, Anthropic Node) and Stripe CLI runbook
+```
+
+## Operations
+
+Every product captures its own 500s and customer feedback (`/feedback` in each dashboard, `POST /api/feedback/public` from the site), files them as deduplicated GitHub issues when `OPS_GITHUB_TOKEN` / `OPS_GITHUB_REPO` are set, and posts a daily digest to `OPS_ALERT_WEBHOOK`. A scheduled Claude session triages those issues and opens fix PRs. See [docs/OPERATIONS.md](docs/OPERATIONS.md) and the claims audit in [docs/CLAIMS_AUDIT.md](docs/CLAIMS_AUDIT.md).
+
+## Go-to-market (first 30 days)
+
+1. **mcp-sentinel** to npm + GitHub Action; post scan results of popular public MCP servers. Zero-cost distribution, SEO on "MCP security", funnels to AgentFuse.
+2. **AgentFuse** hosted beta: `agentfuse.dev`, Stripe Checkout for Pro/Team, open-core self-host. Launch post: "The $47,000 agent loop and the 402 that would have stopped it."
+3. **RecoverKit**: list on Stripe App Marketplace + cold outreach to SaaS at $5k–$50k MRR (failed payments they are not chasing are already lost; a 20% fee on recovered revenue is pure upside for them).
