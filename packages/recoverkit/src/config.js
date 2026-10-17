@@ -23,6 +23,13 @@ export const config = {
   feeDueDays: num('RECOVERKIT_FEE_DUE_DAYS', 14),
   tickSeconds: num('RECOVERKIT_TICK_SECONDS', 300),
   alertWebhook: env('RECOVERKIT_ALERT_WEBHOOK', ''),
+  ops: {
+    githubToken: env('OPS_GITHUB_TOKEN', ''),
+    githubRepo: env('OPS_GITHUB_REPO', ''),          // owner/repo that receives auto-error and feedback issues
+    alertWebhook: env('OPS_ALERT_WEBHOOK', env('RECOVERKIT_ALERT_WEBHOOK', '')),
+    digestIntervalSec: num('OPS_DIGEST_INTERVAL_SECONDS', 86400),
+  },
+
 };
 
 /**

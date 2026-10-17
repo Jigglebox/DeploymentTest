@@ -10,9 +10,11 @@ import { consoleMailer, resendMailer } from './emails.js';
 import { registerAdmin } from './admin.js';
 import { registerConnect } from './connect.js';
 import { FeeBilling } from './fees.js';
+import { createOps } from '@jigglebox/shared/ops';
+import { requireToken } from '@jigglebox/shared/http';
 
 export function buildServer(overrides = {}) {
-  const config = { ...defaultConfig, ...overrides, business: { ...defaultConfig.business, ...(overrides.business ?? {}) } };
+  const config = { ...defaultConfig, ...overrides, business: { ...defaultConfig.business, ...(overrides.business ?? {}) }, ops: { ...defaultConfig.ops, ...(overrides.ops ?? {}) } };
   const store = new Store(config.dbPath);
   const stripe = overrides.stripe ?? new Stripe(config.stripeSecretKey, { fetchImpl: overrides.fetchImpl ?? fetch, baseUrl: overrides.stripeBaseUrl });
   const mailer = overrides.mailer ?? (config.resendApiKey ? resendMailer(config.resendApiKey) : consoleMailer);
@@ -34,12 +36,14 @@ export function buildServer(overrides = {}) {
   });
   registerAdmin(router, { store, engine, config, fees });
   registerConnect(router, { store, stripe, config });
+  const ops = createOps({ db: store.db, product: 'recoverkit', config: config.ops, fetchImpl: overrides.fetchImpl, now: overrides.now });
+  ops.register(router, { auth: (req, url) => { requireToken(req, config.adminToken, url); return { id: 'self', email: config.business.supportEmail }; }, navFor: (url) => [{ href: '/' + (config.adminToken ? `?token=${encodeURIComponent(url.searchParams.get('token') ?? '')}` : ''), label: 'Cases' }, { href: '/feedback' + url.search, label: 'Feedback' }] });
 
-  const server = createApp(router, { onError: (err) => log.error('unhandled', { error: err.message, stack: err.stack }) });
+  const server = createApp(router, { onError: (err, ctx) => { ops.capture(err, ctx); log.error('unhandled', { error: err.message, stack: err.stack, ...ctx }); } });
   let timer = null;
-  const startScheduler = () => { timer = setInterval(() => engine.tick().then(() => fees.tick()).catch((e) => log.error('tick failed', { error: e.message })), config.tickSeconds * 1000); timer.unref(); };
+  const startScheduler = () => { ops.attachProcess(); timer = setInterval(() => engine.tick().then(() => fees.tick()).then(() => ops.tick()).catch((e) => log.error('tick failed', { error: e.message })), config.tickSeconds * 1000); timer.unref(); };
   const stop = () => { if (timer) clearInterval(timer); server.close(); };
-  return { server, store, engine, fees, config, startScheduler, stop };
+  return { server, store, engine, fees, ops, config, startScheduler, stop };
 }
 
 if (isMain(import.meta.url)) {

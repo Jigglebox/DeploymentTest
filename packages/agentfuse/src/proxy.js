@@ -18,16 +18,23 @@ function errorBody(decision, key, publicUrl) {
   return { type: 'error', error: { type: 'agentfuse_' + decision.reason, code: decision.reason, message, key_id: key.id, scope: decision.scope, limit: decision.limit, spent: decision.spent } };
 }
 
-export function createProxyHandler({ store, config, fetchImpl = fetch }) {
+export function createProxyHandler({ store, config, fetchImpl = fetch, mailer = null }) {
   const alertOnce = async (key, type, payload, cooldownSec = 3600) => {
     const last = store.lastEventAt(key.id, type);
     if (last && Date.now() - Date.parse(last) < cooldownSec * 1000) return;
     store.event(key.id, type, payload);
     await postWebhook(config.alertWebhook, { text: `AgentFuse ${type} for key "${key.name}": ${JSON.stringify(payload)}`, type, key: { id: key.id, name: key.name }, ...payload }, { fetchImpl });
   };
+  const email = async (key, subject, text) => {
+    const to = store.getOrg(key.org_id)?.email || config.alertEmail;
+    if (!mailer || !to) return;
+    await mailer.send({ from: config.fromEmail, to, subject, text }).catch((e) => log.warn('alert email failed', { error: e.message }));
+  };
   const trip = async (key, reason, detail) => {
     store.trip(key.id, reason, detail);
-    await postWebhook(config.alertWebhook, { text: `AgentFuse TRIPPED key "${key.name}": ${reason} ${JSON.stringify(detail)}. Resume: ${config.publicUrl}/keys/${key.id}`, type: 'tripped', key: { id: key.id, name: key.name }, reason, ...detail }, { fetchImpl });
+    const text = `AgentFuse TRIPPED key "${key.name}": ${reason} ${JSON.stringify(detail)}. Resume: ${config.publicUrl}/keys/${key.id}`;
+    await postWebhook(config.alertWebhook, { text, type: 'tripped', key: { id: key.id, name: key.name }, reason, ...detail }, { fetchImpl });
+    await email(key, `[AgentFuse] ${key.name} tripped: ${reason}`, text);
   };
 
   /** hosted: the org's own sealed credentials. single: the environment. */

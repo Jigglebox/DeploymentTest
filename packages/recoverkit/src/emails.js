@@ -1,7 +1,6 @@
 // Email templates + pluggable sender. Templates are deliberately plain: they come from "billing",
 // not "marketing", and plain-looking payment emails convert better than designed ones.
 import { money } from '@jigglebox/shared/html';
-import { log } from '@jigglebox/shared/log';
 
 const TEMPLATES = {
   payment_failed: {
@@ -69,17 +68,4 @@ export function renderEmail(template, ctx) {
   return { subject: t.subject(vars), text: t.body(vars) };
 }
 
-/** Sender used in dev/tests: records instead of sending. */
-export const consoleMailer = { name: 'console', sent: [], async send(msg) { this.sent.push(msg); log.info('email (console mailer)', { to: msg.to, subject: msg.subject }); return { id: 'console' }; } };
-
-/** Resend (resend.com) sender: one HTTP call, no SDK. */
-export function resendMailer(apiKey, { fetchImpl = fetch } = {}) {
-  return {
-    name: 'resend',
-    async send({ from, to, subject, text }) {
-      const res = await fetchImpl('https://api.resend.com/emails', { method: 'POST', headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' }, body: JSON.stringify({ from, to: [to], subject, text }) });
-      if (!res.ok) throw new Error(`resend ${res.status}: ${await res.text()}`);
-      return res.json();
-    },
-  };
-}
+export { consoleMailer, resendMailer } from '@jigglebox/shared/mailer';

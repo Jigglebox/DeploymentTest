@@ -73,7 +73,7 @@ export function createApp(router, { onError } = {}) {
       await match.handler(req, res, { params: match.params, url });
     } catch (err) {
       const status = err.status ?? 500;
-      if (status >= 500) onError?.(err);
+      if (status >= 500) onError?.(err, { route: `${req.method} ${url.pathname}` });
       if (!res.headersSent) sendJson(res, status, { error: err.message, ...(err.extra ?? {}) });
       else res.end();
     }

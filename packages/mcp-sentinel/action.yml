@@ -10,4 +10,4 @@ runs:
     - uses: actions/setup-node@v4
       with: { node-version: '22' }
     - shell: bash
-      run: npx --yes mcp-sentinel scan "${{ inputs.config }}" --fail-on "${{ inputs.fail-on }}" --lock "${{ inputs.lock }}"
+      run: node "${{ github.action_path }}/src/cli.js" scan "${{ inputs.config }}" --fail-on "${{ inputs.fail-on }}" --lock "${{ inputs.lock }}"

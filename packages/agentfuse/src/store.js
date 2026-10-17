@@ -187,6 +187,10 @@ export class Store {
   }
 
   recentLedger(keyId, limit = 50) { return this.q.recentLedger.all(keyId, limit); }
+  /** Full ledger for an org in a window, for CSV export. */
+  exportLedger(orgId, fromIso, toIso) {
+    return this.db.prepare('SELECT l.created_at, k.name AS key_name, l.key_id, l.run_id, l.provider, l.model, l.input_tokens, l.output_tokens, l.cost_usd, l.estimated, l.status, l.latency_ms FROM ledger l JOIN keys k ON k.id=l.key_id WHERE k.org_id=? AND l.created_at>=? AND l.created_at<? ORDER BY l.id').all(orgId, fromIso, toIso);
+  }
   totals(orgId = DEFAULT_ORG, now = new Date()) { return { month: this.q.totals.get(orgId, monthStart(now)), day: this.q.totals.get(orgId, dayStart(now)), byModel: this.q.byModel.all(orgId, monthStart(now)) }; }
   close() { this.db.close(); }
 }

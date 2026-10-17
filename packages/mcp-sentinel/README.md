@@ -55,7 +55,7 @@ Tag `mcp-sentinel-vX.Y.Z` on `main`; the `Publish mcp-sentinel` workflow runs th
 
 ## Pricing
 
-The CLI is MIT and free forever. **Sentinel Cloud** (roadmap): nightly re-scans of your servers, Slack alert on drift or new findings, org-wide policy, $19/developer/month, bundled free with AgentFuse Team.
+The CLI is MIT and free forever. **Sentinel Cloud** (`packages/sentinel-cloud`): scheduled re-scans of HTTP servers, CI reports from stdio servers, webhook alerts on drift or new findings, scan history per project, $19/developer/month.
 
 ## Tests
 

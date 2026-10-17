@@ -62,6 +62,17 @@ export function registerAdmin(router, { store, config, stripe, auth: authz }) {
   router.delete('/api/keys/:id', (req, res, { url, params }) => { const org = auth(req, url); keyOr404(org, params.id); store.deleteKey(params.id); sendJson(res, 200, { deleted: params.id }); });
   router.get('/api/events', (req, res, { url }) => { const org = auth(req, url); sendJson(res, 200, { events: store.recentEvents(org.id, 100) }); });
   router.get('/api/usage', (req, res, { url }) => { const org = auth(req, url); sendJson(res, 200, store.totals(org.id)); });
+  router.get('/api/export.csv', (req, res, { url }) => {
+    const org = auth(req, url);
+    const to = url.searchParams.get('to') ?? new Date().toISOString();
+    const from = url.searchParams.get('from') ?? new Date(Date.parse(to) - 30 * 86400_000).toISOString();
+    const rows = store.exportLedger(org.id, from, to);
+    const cols = ['created_at', 'key_name', 'key_id', 'run_id', 'provider', 'model', 'input_tokens', 'output_tokens', 'cost_usd', 'estimated', 'status', 'latency_ms'];
+    const cell = (v) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const csv = [cols.join(','), ...rows.map((r) => cols.map((c) => cell(r[c])).join(','))].join('\n') + '\n';
+    res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="agentfuse-${from.slice(0, 10)}-${to.slice(0, 10)}.csv"` });
+    res.end(csv);
+  });
   // Provider credentials per org (hosted mode). Keys are sealed with the master key; never returned.
   router.get('/api/providers', (req, res, { url }) => { const org = auth(req, url); sendJson(res, 200, { providers: providerStatus(org) }); });
   router.put('/api/providers/:name', async (req, res, { url, params }) => {
@@ -83,7 +94,7 @@ export function registerAdmin(router, { store, config, stripe, auth: authz }) {
   }
 
   // ---- Dashboard ----
-  const nav = (url) => [{ href: '/' + tokenQs(url), label: 'Keys' }, { href: '/events' + tokenQs(url), label: 'Events' }, { href: '/docs', label: 'Setup' }];
+  const nav = (url) => [{ href: '/' + tokenQs(url), label: 'Keys' }, { href: '/events' + tokenQs(url), label: 'Events' }, { href: '/docs', label: 'Setup' }, { href: '/feedback' + tokenQs(url), label: 'Feedback' }];
   const accountBar = (org) => authz.hosted ? `<p class="muted" style="margin:0 0 16px">${esc(org.name)} · ${esc(org.email ?? '')} · plan <b>${esc(planOf(org))}</b> · <form class="inline" method="post" action="/logout"><button class="secondary">Sign out</button></form></p>` : '';
   const statusPill = (k) => k.status === 'active' ? '<span class="pill ok">active</span>' : k.status === 'tripped' ? `<span class="pill bad">tripped · ${esc(k.tripped_reason)}</span>` : '<span class="pill warn">disabled</span>';
 

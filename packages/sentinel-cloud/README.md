@@ -25,4 +25,4 @@ curl -X POST localhost:8789/api/projects/<id>/servers -H 'authorization: Bearer 
 
 API: `POST /api/v1/report` (project token) · `GET/POST /api/projects` · `GET/PUT/DELETE /api/projects/:id` · `POST /api/projects/:id/servers` · `GET /api/projects/:id/history/:server` · `POST /api/tick`.
 
-Pricing: $19 per developer per month; included with AgentFuse Team. Tests: report ingestion with drift and new-finding alerts, token auth, plan gating, scheduled scans against a fake Streamable-HTTP MCP server including a simulated rug-pull and an outage.
+Pricing: $19 per developer per month. Tests: report ingestion with drift and new-finding alerts, token auth, plan gating, scheduled scans against a fake Streamable-HTTP MCP server including a simulated rug-pull and an outage.

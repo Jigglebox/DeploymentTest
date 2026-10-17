@@ -22,15 +22,15 @@ ANTHROPIC_BASE_URL=https://fuse.yourco.com/anthropic  ANTHROPIC_API_KEY=af_live_
 <li><b>Hard budgets</b> per key: monthly, daily, and per run. Enforced inline on every request, not by a nightly billing export.</li>
 <li><b>Pre-flight blocking.</b> Cost is estimated from prompt size and <code>max_tokens</code>; a call that would cross the cap is refused before it is forwarded.</li>
 <li><b>Loop detection.</b> The same request N times in a window opens the breaker. The key stays blocked until a human resumes it.</li>
-<li><b>Exact metering</b> for streamed and non-streamed responses on both providers, including cached tokens. Every response carries <code>x-agentfuse-cost-usd</code>.</li>
-<li><b>Alerts</b> to Slack or any webhook at 80% of budget, on abnormal burn rate, and on every trip.</li>
+<li><b>Exact metering</b> for streamed and non-streamed responses on both providers, including cached tokens. Every non-streamed response carries <code>x-agentfuse-cost-usd</code>; streamed usage is metered from the final chunk.</li>
+<li><b>Alerts</b> to Slack or any webhook at 80% of budget and on abnormal burn rate; every trip also goes out by email when configured.</li>
 <li><b>Model allow-lists</b> and per-minute rate limits per key.</li>
 </ol>
 <h2 class="section" id="pricing">Pricing</h2>
 <div class="tiers">
   <div class="tier"><h3>Free</h3><div class="amt">$0</div><ul><li>3 agent keys</li><li>Self-hosted</li><li>Webhook alerts</li></ul></div>
-  <div class="tier hl"><h3>Pro</h3><div class="amt">$29<span style="font-size:14px">/mo</span></div><ul><li>25 agent keys</li><li>Hosted or self-hosted</li><li>Email + Slack alerts</li><li>One avoided incident pays for years</li></ul></div>
-  <div class="tier"><h3>Team</h3><div class="amt">$99<span style="font-size:14px">/mo</span></div><ul><li>Unlimited keys</li><li>SSO, audit export</li><li>PagerDuty</li><li>mcp-sentinel monitoring included</li></ul></div>
+  <div class="tier hl"><h3>Pro</h3><div class="amt">$29<span style="font-size:14px">/mo</span></div><ul><li>25 agent keys</li><li>Hosted or self-hosted</li><li>Webhook + email alerts</li><li>One avoided incident pays for years</li></ul></div>
+  <div class="tier"><h3>Team</h3><div class="amt">$99<span style="font-size:14px">/mo</span></div><ul><li>Unlimited keys</li><li>CSV audit export</li><li>Encrypted per-org provider keys</li><li>Priority support</li></ul></div>
 </div>
 <h2 class="section">FAQ</h2>
 <dl class="faq">

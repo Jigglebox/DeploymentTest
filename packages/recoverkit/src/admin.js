@@ -18,7 +18,7 @@ export function registerAdmin(router, { store, engine, config, fees }) {
   router.get('/api/fees', (req, res, { url }) => { auth(req, url); sendJson(res, 200, { fee_pct: config.feePct, fee_cap_cents: config.feeCapCents, fees: store.listFees() }); });
   router.post('/api/fees/run', async (req, res, { url }) => { auth(req, url); const period = url.searchParams.get('period'); if (!/^\d{4}-\d{2}$/.test(period ?? '')) throw new HttpError(400, 'period=YYYY-MM required'); sendJson(res, 200, { period, results: await fees.run(period) }); });
 
-  const nav = (url) => [{ href: '/' + q(url), label: 'Cases' }, { href: '/docs', label: 'Setup' }];
+  const nav = (url) => [{ href: '/' + q(url), label: 'Cases' }, { href: '/docs', label: 'Setup' }, { href: '/feedback' + q(url), label: 'Feedback' }];
   const pill = (s) => `<span class="pill ${s === 'recovered' ? 'ok' : s === 'open' ? 'warn' : 'bad'}">${esc(s)}</span>`;
 
   router.get('/', (req, res, { url }) => {

@@ -7,6 +7,9 @@ export const config = {
   adminToken: env('AGENTFUSE_ADMIN_TOKEN', ''),
   publicUrl: env('AGENTFUSE_PUBLIC_URL', `http://localhost:${num('PORT', 8787)}`),
   alertWebhook: env('AGENTFUSE_ALERT_WEBHOOK', ''),
+  alertEmail: env('AGENTFUSE_ALERT_EMAIL', ''),      // trip/burn-rate alerts by email (needs RESEND_API_KEY)
+  resendApiKey: env('RESEND_API_KEY', ''),
+  fromEmail: env('AGENTFUSE_FROM_EMAIL', 'alerts@example.com'),
   // Plan gating for the hosted/paid tiers. free=3 keys, pro=25, team=unlimited.
   plan: env('AGENTFUSE_PLAN', 'free'),
   // 'single': one tenant, admin token, provider keys from env.  'hosted': org signup/login, per-org provider keys sealed with the master key.
@@ -24,6 +27,12 @@ export const config = {
   },
   // Extend the per-provider route allow-list, e.g. [["POST","/v1/moderations","openai"]]
   extraRoutes: (() => { try { return JSON.parse(env('AGENTFUSE_EXTRA_ROUTES_JSON', '[]')); } catch { return []; } })(),
+  ops: {
+    githubToken: env('OPS_GITHUB_TOKEN', ''),
+    githubRepo: env('OPS_GITHUB_REPO', ''),          // owner/repo that receives auto-error and feedback issues
+    alertWebhook: env('OPS_ALERT_WEBHOOK', env('AGENTFUSE_ALERT_WEBHOOK', '')),
+    digestIntervalSec: num('OPS_DIGEST_INTERVAL_SECONDS', 86400),
+  },
   pricingOverrides: env('AGENTFUSE_PRICING_JSON', ''),
   unknownModelPricePerM: { input: num('AGENTFUSE_UNKNOWN_INPUT_PRICE', 5), output: num('AGENTFUSE_UNKNOWN_OUTPUT_PRICE', 25) },
 };

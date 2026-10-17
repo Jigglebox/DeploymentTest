@@ -168,3 +168,24 @@ test('dashboard renders', async () => {
   const html = await r.text();
   assert.ok(html.includes('AgentFuse') && html.includes('looper'));
 });
+
+test('CSV audit export is org-scoped and well-formed', async () => {
+  const r = await fetch(base + '/api/export.csv', { headers: { authorization: 'Bearer admin' } });
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /text\/csv/);
+  const lines = (await r.text()).trim().split('\n');
+  assert.equal(lines[0], 'created_at,key_name,key_id,run_id,provider,model,input_tokens,output_tokens,cost_usd,estimated,status,latency_ms');
+  assert.ok(lines.length > 5, 'rows from earlier tests are included');
+  assert.ok(lines.some((l) => l.includes('agent-a')));
+});
+
+test('a trip also sends an email alert when a mailer and recipient are configured', async (t) => {
+  const mailer = { name: 'test', sent: [], async send(m) { this.sent.push(m); return {}; } };
+  const local = buildServer({ dbPath: ':memory:', plan: 'team', alertEmail: 'oncall@example.com', mailer, providers: { openai: { baseUrl: up.url, apiKey: 'k' }, anthropic: { baseUrl: up.url, apiKey: 'k' } } });
+  const b = await listen(local.server);
+  t.after(() => { local.server.closeAllConnections(); local.server.close(); });
+  const k = local.store.createKey({ name: 'mailtest', policy: { monthly_budget_usd: 0.0001 } }); // pre-flight (~$0.00006) passes, actual ($0.00021) crosses
+  const r = await fetch(b + '/openai/v1/chat/completions', { method: 'POST', headers: { authorization: `Bearer ${k.raw_key}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'x' }], max_tokens: 100 }) });
+  assert.equal(r.headers.get('x-agentfuse-tripped'), 'budget_exceeded');
+  assert.equal(mailer.sent.length, 1); assert.equal(mailer.sent[0].to, 'oncall@example.com'); assert.match(mailer.sent[0].subject, /mailtest tripped/);
+});

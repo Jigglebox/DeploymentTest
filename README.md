@@ -41,8 +41,12 @@ docs/                  market analysis and go-to-market notes
 examples/              SDK examples (OpenAI Python, Anthropic Node) and Stripe CLI runbook
 ```
 
+## Operations
+
+Every product captures its own 500s and customer feedback (`/feedback` in each dashboard, `POST /api/feedback/public` from the site), files them as deduplicated GitHub issues when `OPS_GITHUB_TOKEN` / `OPS_GITHUB_REPO` are set, and posts a daily digest to `OPS_ALERT_WEBHOOK`. A scheduled Claude session triages those issues and opens fix PRs. See [docs/OPERATIONS.md](docs/OPERATIONS.md) and the claims audit in [docs/CLAIMS_AUDIT.md](docs/CLAIMS_AUDIT.md).
+
 ## Go-to-market (first 30 days)
 
 1. **mcp-sentinel** to npm + GitHub Action; post scan results of popular public MCP servers. Zero-cost distribution, SEO on "MCP security", funnels to AgentFuse.
 2. **AgentFuse** hosted beta: `agentfuse.dev`, Stripe Checkout for Pro/Team, open-core self-host. Launch post: "The $47,000 agent loop and the 402 that would have stopped it."
-3. **RecoverKit**: list on Stripe App Marketplace + cold outreach to SaaS at $5k–$50k MRR (they lose 5–9% of revenue to involuntary churn; a 20% fee on recovered revenue is pure upside for them).
+3. **RecoverKit**: list on Stripe App Marketplace + cold outreach to SaaS at $5k–$50k MRR (failed payments they are not chasing are already lost; a 20% fee on recovered revenue is pure upside for them).

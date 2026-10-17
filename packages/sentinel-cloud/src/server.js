@@ -6,9 +6,10 @@ import { isMain } from '@jigglebox/shared/runtime';
 import { config as defaultConfig, PLAN_LIMITS } from './config.js';
 import { Store } from './store.js';
 import { Monitor } from './monitor.js';
+import { createOps } from '@jigglebox/shared/ops';
 
 export function buildServer(overrides = {}) {
-  const config = { ...defaultConfig, ...overrides };
+  const config = { ...defaultConfig, ...overrides, ops: { ...defaultConfig.ops, ...(overrides.ops ?? {}) } };
   const store = new Store(config.dbPath);
   const monitor = new Monitor({ store, config, fetchImpl: overrides.fetchImpl, now: overrides.now });
   const router = new Router();
@@ -22,6 +23,8 @@ export function buildServer(overrides = {}) {
   };
 
   router.get('/healthz', (req, res) => sendJson(res, 200, { ok: true, projects: store.countProjects() }));
+  const ops = createOps({ db: store.db, product: 'sentinel-cloud', config: config.ops, fetchImpl: overrides.fetchImpl, now: overrides.now });
+  ops.register(router, { auth: (req, url) => { admin(req, url); return { id: 'admin', email: null }; }, navFor: (url) => [{ href: '/' + tokenQs(url, config.adminToken), label: 'Projects' }, { href: '/feedback' + tokenQs(url, config.adminToken), label: 'Feedback' }] });
 
   // ---- CLI-facing: `mcp-sentinel scan --report <url> --report-token <token>` posts here ----
   router.post('/api/v1/report', async (req, res) => {
@@ -57,7 +60,7 @@ export function buildServer(overrides = {}) {
   router.post('/api/tick', async (req, res, { url }) => { admin(req, url); sendJson(res, 200, { ran: await monitor.tick() }); });
 
   // ---- Dashboard ----
-  const nav = (url) => [{ href: '/' + tokenQs(url, config.adminToken), label: 'Projects' }];
+  const nav = (url) => [{ href: '/' + tokenQs(url, config.adminToken), label: 'Projects' }, { href: '/feedback' + tokenQs(url, config.adminToken), label: 'Feedback' }];
   const sevPill = (n) => n >= 3 ? '<span class="pill bad">high</span>' : n === 2 ? '<span class="pill warn">medium</span>' : n === 1 ? '<span class="pill warn">low</span>' : '<span class="pill ok">clean</span>';
   router.get('/', (req, res, { url }) => {
     admin(req, url);
@@ -90,11 +93,11 @@ export function buildServer(overrides = {}) {
     sendHtml(res, layout({ title: `Sentinel Cloud · ${p.name}`, product: 'Sentinel Cloud', nav: nav(url), body }));
   });
 
-  const server = createApp(router, { onError: (err) => log.error('unhandled', { error: err.message, stack: err.stack }) });
+  const server = createApp(router, { onError: (err, ctx) => { ops.capture(err, ctx); log.error('unhandled', { error: err.message, stack: err.stack, ...ctx }); } });
   let timer = null;
-  const startScheduler = () => { timer = setInterval(() => monitor.tick().catch((e) => log.error('tick failed', { error: e.message })), Math.max(60, Math.min(config.scanIntervalSec, 600)) * 1000); timer.unref(); };
+  const startScheduler = () => { ops.attachProcess(); timer = setInterval(() => monitor.tick().then(() => ops.tick()).catch((e) => log.error('tick failed', { error: e.message })), Math.max(60, Math.min(config.scanIntervalSec, 600)) * 1000); timer.unref(); };
   const stop = () => { if (timer) clearInterval(timer); server.closeAllConnections?.(); server.close(); };
-  return { server, store, monitor, config, startScheduler, stop };
+  return { server, store, monitor, ops, config, startScheduler, stop };
 }
 
 if (isMain(import.meta.url)) {

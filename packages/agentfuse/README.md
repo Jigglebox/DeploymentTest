@@ -9,7 +9,8 @@ A drop-in proxy for the OpenAI and Anthropic APIs. Point your SDK at it, give ea
 - **Hard budgets** per key: monthly, daily and per-run (`X-AgentFuse-Run` header). Enforced inline, not by a cron that reads a billing export.
 - **Pre-flight blocking**: estimates a request's cost from prompt size and `max_tokens` and refuses it *before* forwarding if it would cross the cap. `preflight: strict` assumes worst case.
 - **Loop detection**: N identical requests within a window → breaker opens. The $47k incident was four agents repeating themselves for 11 days.
-- **Breaker semantics**: a tripped key stays blocked until a human resumes it in the dashboard or API. Webhook (Slack-compatible) on trip, 80% threshold and abnormal burn rate.
+- **Breaker semantics**: a tripped key stays blocked until a human resumes it in the dashboard or API. Webhook (Slack-compatible) on trip, 80% threshold and abnormal burn rate; trips also go out by email (`AGENTFUSE_ALERT_EMAIL` or the org's email in hosted mode, via `RESEND_API_KEY`).
+- **CSV audit export**: `GET /api/export.csv?from=&to=` returns the org's full ledger for the window.
 - **Exact metering** for streamed and non-streamed responses on both providers (OpenAI chat + responses APIs, Anthropic messages incl. cache tokens). Response headers carry `x-agentfuse-cost-usd` and `x-agentfuse-month-remaining-usd`.
 - **Model allow-lists** and per-minute rate limits.
 - **Route allow-list.** A virtual key can reach only inference routes (`chat/completions`, `responses`, `embeddings`, `models`; Anthropic `messages`, `count_tokens`, `models`). Files, fine-tuning, batches, vector stores and admin endpoints return 403, so a leaked agent key never becomes the account key. Extend with `AGENTFUSE_EXTRA_ROUTES_JSON='[["POST","/v1/audio/speech","openai"]]'`.
@@ -71,8 +72,8 @@ Auth: `Authorization: Bearer $AGENTFUSE_ADMIN_TOKEN` (or `?token=` for the dashb
 | | Free | Pro $29/mo | Team $99/mo |
 |---|---|---|---|
 | Agent keys | 3 | 25 | unlimited |
-| Hosting | self-host | hosted or self-host | hosted, SSO, audit export |
-| Alerts | webhook | webhook + email + Slack app | + PagerDuty |
+| Hosting | self-host | hosted or self-host | hosted, CSV audit export, priority support |
+| Alerts | webhook | webhook + email | webhook + email |
 
 ## Hosted mode (multi-tenant SaaS)
 
