@@ -17,6 +17,8 @@ const MIGRATIONS = [
    CREATE INDEX scans_project_server ON scans(project_id, server, id);
    CREATE TABLE alerts (
      id INTEGER PRIMARY KEY, project_id TEXT NOT NULL, server TEXT NOT NULL, type TEXT NOT NULL, detail TEXT NOT NULL, created_at TEXT NOT NULL);`,
+  `ALTER TABLE projects ADD COLUMN org_id TEXT NOT NULL DEFAULT 'org_default';
+   CREATE INDEX projects_org ON projects(org_id);`,
 ];
 const hash = (s) => createHash('sha256').update(s).digest('hex');
 
@@ -25,11 +27,12 @@ export class Store {
     this.db = openDatabase(dbPath, MIGRATIONS);
     const p = (sql) => this.db.prepare(sql);
     this.q = {
-      insertProject: p('INSERT INTO projects (id,name,token_hash,token_prefix,alert_webhook,fail_on,created_at) VALUES (?,?,?,?,?,?,?)'),
+      insertProject: p('INSERT INTO projects (id,name,token_hash,token_prefix,alert_webhook,fail_on,created_at,org_id) VALUES (?,?,?,?,?,?,?,?)'),
       projectByToken: p('SELECT * FROM projects WHERE token_hash=?'),
       projectById: p('SELECT * FROM projects WHERE id=?'),
-      listProjects: p('SELECT * FROM projects ORDER BY created_at DESC'),
-      countProjects: p('SELECT COUNT(*) AS n FROM projects'),
+      listProjects: p('SELECT * FROM projects WHERE org_id=? ORDER BY created_at DESC'),
+      countProjects: p('SELECT COUNT(*) AS n FROM projects WHERE org_id=?'),
+      countAllProjects: p('SELECT COUNT(*) AS n FROM projects'),
       updateProject: p('UPDATE projects SET alert_webhook=COALESCE(?,alert_webhook), fail_on=COALESCE(?,fail_on) WHERE id=?'),
       deleteProject: p('DELETE FROM projects WHERE id=?'),
       upsertServer: p(`INSERT INTO monitored_servers (id,project_id,name,url,headers,enabled,next_scan_at,created_at) VALUES (?,?,?,?,?,1,?,?)
@@ -47,16 +50,17 @@ export class Store {
     };
   }
   _project(row) { return row ? { ...row, token_hash: undefined } : null; }
-  createProject({ name, alertWebhook = null, failOn = 'high' }) {
+  createProject({ name, alertWebhook = null, failOn = 'high', orgId = 'org_default' }) {
     const raw = 'sn_' + randomBytes(24).toString('base64url');
     const id = 'proj_' + randomBytes(6).toString('hex');
-    this.q.insertProject.run(id, name, hash(raw), raw.slice(0, 8) + '…', alertWebhook, failOn, nowIso());
+    this.q.insertProject.run(id, name, hash(raw), raw.slice(0, 8) + '…', alertWebhook, failOn, nowIso(), orgId);
     return { ...this._project(this.q.projectById.get(id)), raw_token: raw };
   }
   projectByToken(raw) { return this._project(this.q.projectByToken.get(hash(raw))); }
   getProject(id) { return this._project(this.q.projectById.get(id)); }
-  listProjects() { return this.q.listProjects.all().map((r) => this._project(r)); }
-  countProjects() { return this.q.countProjects.get().n; }
+  listProjects(orgId = 'org_default') { return this.q.listProjects.all(orgId).map((r) => this._project(r)); }
+  countProjects(orgId = 'org_default') { return this.q.countProjects.get(orgId).n; }
+  countAllProjects() { return this.q.countAllProjects.get().n; }
   updateProject(id, { alertWebhook = null, failOn = null }) { this.q.updateProject.run(alertWebhook, failOn, id); return this.getProject(id); }
   deleteProject(id) { this.q.deleteProject.run(id); }
 

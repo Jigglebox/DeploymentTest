@@ -32,12 +32,12 @@ Every product records funnel events through the ops module and exposes them at `
 
 | Stage | AgentFuse | RecoverKit | Sentinel Cloud |
 |---|---|---|---|
-| signup | org created | Stripe account connected | project created |
+| signup | org created | Stripe account connected | org created (hosted) / first project (single) |
 | activated | first successful proxied request | first recovered invoice | first scan report or registered server |
-| converted | first paid plan | first fee invoice | (no billing yet) |
-| churned | subscription ended | merchant revoked access | — |
+| converted | first paid plan | first fee invoice | first paid seat plan |
+| churned | subscription ended | merchant revoked access | subscription ended |
 
-Revenue tile: AgentFuse MRR from plans on record; RecoverKit fees accrued this month; Sentinel Cloud none yet. The daily digest carries the same counts. Onboarding emails for hosted AgentFuse orgs: welcome on signup, a nudge after 48 h with no key, a nudge after 7 days with a key but no traffic; each sent once.
+Revenue tile: AgentFuse MRR from plans on record; RecoverKit fees accrued this month; Sentinel Cloud seats × seat price from plans on record. The daily digest carries the same counts. Onboarding emails for hosted AgentFuse orgs: welcome on signup, a nudge after 48 h with no key, a nudge after 7 days with a key but no traffic; each sent once.
 
 ## 5. Release
 

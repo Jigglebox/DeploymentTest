@@ -13,6 +13,8 @@
     "./runtime": "./src/runtime.js",
     "./crypto": "./src/crypto.js",
     "./ops": "./src/ops.js",
-    "./mailer": "./src/mailer.js"
+    "./mailer": "./src/mailer.js",
+    "./tenancy": "./src/tenancy.js",
+    "./subscriptions": "./src/subscriptions.js"
   }
 }

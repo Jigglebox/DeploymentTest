@@ -29,6 +29,7 @@ Method: every factual claim on the marketing site, the READMEs and the PR descri
 | Detections listed (overrides, hidden-from-user, exfil, invisible text, shadowing, rug-pulls) | mcp-sentinel | verified | `analyzer.test.js`, `cli.test.js` |
 | GitHub Action usable from this repo | mcp-sentinel README/site | **corrected** | action ran `npx mcp-sentinel` (unpublished); now runs from the checked-out action path |
 | "Nightly re-scans", "org-wide policy", "Slack alert" | Sentinel Cloud copy | **corrected** | re-scans are on a configurable interval (default hourly); no org policy; alerts are a Slack-compatible webhook |
+| Sentinel Cloud "$19 per developer per month" | Sentinel page, README | **implemented** | hosted mode: org signup, per-seat Stripe subscription, project cap lifted on upgrade (`hosted.test.js`) |
 | $47,000 looping-agent incident; 44% with AI spend guardrails | AgentFuse site | verified (third-party) | sources in `docs/MARKET_ANALYSIS.md` |
 
 Not verifiable here and stated as such everywhere: live Stripe, OpenAI and Anthropic calls (no credentials in the build environment).

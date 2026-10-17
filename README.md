@@ -32,7 +32,7 @@ Marketing site: static pages in `site/`, live at https://jigglebox-products.verc
 ## Repository layout
 
 ```
-packages/shared        one HTTP toolkit, one SQLite wrapper, one dashboard stylesheet (DRY across products)
+packages/shared        HTTP toolkit, SQLite wrapper, dashboard chrome, Stripe client, crypto, tenancy (orgs/auth), subscriptions, ops (errors/feedback/growth), mailer
 packages/agentfuse     proxy + policy engine + admin API + dashboard
 packages/recoverkit    Stripe webhook ingestion + recovery engine + campaign + dashboard
 packages/mcp-sentinel  MCP client + static analyzer + lockfile + CLI + GitHub Action
