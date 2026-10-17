@@ -24,7 +24,7 @@ function sanitizePolicy(input = {}) {
   return out;
 }
 
-export function registerAdmin(router, { store, config, stripe, auth: authz }) {
+export function registerAdmin(router, { store, config, stripe, auth: authz, ops = null }) {
   const auth = (req, url) => authz.requireOrg(req, url);
   /** A key is only visible to the org that owns it. */
   const keyOr404 = (org, id) => { const k = store.getKey(id); if (!k || k.org_id !== org.id) throw new HttpError(404, 'key not found'); return k; };
@@ -46,6 +46,7 @@ export function registerAdmin(router, { store, config, stripe, auth: authz }) {
     enforceKeyLimit(org);
     if (!body.name) throw new HttpError(400, 'name is required');
     const key = store.createKey({ name: String(body.name), policy: sanitizePolicy(body.policy ?? body), orgId: org.id });
+    ops?.track('key_created', { tenant: org.id });
     sendJson(res, 201, { key: view(key), raw_key: key.raw_key, note: 'raw_key is shown once; store it now' });
   });
   router.get('/api/keys/:id', (req, res, { url, params }) => {
@@ -94,7 +95,7 @@ export function registerAdmin(router, { store, config, stripe, auth: authz }) {
   }
 
   // ---- Dashboard ----
-  const nav = (url) => [{ href: '/' + tokenQs(url), label: 'Keys' }, { href: '/events' + tokenQs(url), label: 'Events' }, { href: '/docs', label: 'Setup' }, { href: '/feedback' + tokenQs(url), label: 'Feedback' }];
+  const nav = (url) => [{ href: '/' + tokenQs(url), label: 'Keys' }, { href: '/events' + tokenQs(url), label: 'Events' }, { href: '/docs', label: 'Setup' }, ...(authz.hosted ? [] : [{ href: '/growth' + tokenQs(url), label: 'Growth' }]), { href: '/feedback' + tokenQs(url), label: 'Feedback' }];
   const accountBar = (org) => authz.hosted ? `<p class="muted" style="margin:0 0 16px">${esc(org.name)} · ${esc(org.email ?? '')} · plan <b>${esc(planOf(org))}</b> · <form class="inline" method="post" action="/logout"><button class="secondary">Sign out</button></form></p>` : '';
   const statusPill = (k) => k.status === 'active' ? '<span class="pill ok">active</span>' : k.status === 'tripped' ? `<span class="pill bad">tripped · ${esc(k.tripped_reason)}</span>` : '<span class="pill warn">disabled</span>';
 
@@ -199,6 +200,7 @@ ANTHROPIC_API_KEY=af_live_...</code></pre>
     const f = await form(req);
     enforceKeyLimit(org);
     const key = store.createKey({ name: f.name || 'agent', policy: sanitizePolicy(f), orgId: org.id });
+    ops?.track('key_created', { tenant: org.id });
     const q = tokenQs(url);
     redirect(res, `/${q}${q ? '&' : '?'}created=${encodeURIComponent(key.raw_key)}`);
   });

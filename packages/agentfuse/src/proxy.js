@@ -18,7 +18,7 @@ function errorBody(decision, key, publicUrl) {
   return { type: 'error', error: { type: 'agentfuse_' + decision.reason, code: decision.reason, message, key_id: key.id, scope: decision.scope, limit: decision.limit, spent: decision.spent } };
 }
 
-export function createProxyHandler({ store, config, fetchImpl = fetch, mailer = null }) {
+export function createProxyHandler({ store, config, fetchImpl = fetch, mailer = null, ops = null }) {
   const alertOnce = async (key, type, payload, cooldownSec = 3600) => {
     const last = store.lastEventAt(key.id, type);
     if (last && Date.now() - Date.parse(last) < cooldownSec * 1000) return;
@@ -32,6 +32,7 @@ export function createProxyHandler({ store, config, fetchImpl = fetch, mailer = 
   };
   const trip = async (key, reason, detail) => {
     store.trip(key.id, reason, detail);
+    ops?.track('tripped', { tenant: key.org_id, props: { reason } });
     const text = `AgentFuse TRIPPED key "${key.name}": ${reason} ${JSON.stringify(detail)}. Resume: ${config.publicUrl}/keys/${key.id}`;
     await postWebhook(config.alertWebhook, { text, type: 'tripped', key: { id: key.id, name: key.name }, reason, ...detail }, { fetchImpl });
     await email(key, `[AgentFuse] ${key.name} tripped: ${reason}`, text);
@@ -138,6 +139,7 @@ export function createProxyHandler({ store, config, fetchImpl = fetch, mailer = 
     store.record({ keyId: key.id, runId, provider: provider.name, model: responseModel, fingerprint, inputTokens: usage?.input ?? 0, outputTokens: usage?.output ?? 0, costUsd: cost, estimated, status: truncated ? 499 : upstreamRes.status, latencyMs: Date.now() - started });
     if (truncated) return;
 
+    if (upstreamRes.ok) ops?.track('activated', { tenant: key.org_id, once: true });
     const after = store.snapshot(key.id, { runId });
     const check = postCheck({ key, snapshot: after });
     if (check.trip) await trip(key, check.reason, { scope: check.scope, limit: check.limit, spent: check.spent });

@@ -140,6 +140,14 @@ export class Store {
   setOrgBilling(orgId, billing) { this.q.setOrgBilling.run(JSON.stringify(billing), orgId); }
   /** Effective plan for an org: a paid subscription recorded via billing beats the env default. */
   plan(orgId, fallback = 'free') { return this.getOrg(orgId)?.plan ?? fallback; }
+  /** Recurring revenue from plans on record (hosted mode); prices in cents. */
+  mrr(prices = { pro: 2900, team: 9900 }) {
+    const rows = this.db.prepare("SELECT plan, COUNT(*) AS n FROM orgs WHERE plan IN ('pro','team') GROUP BY plan").all();
+    return { label: 'MRR', mrr_cents: rows.reduce((a, r) => a + (prices[r.plan] ?? 0) * r.n, 0), paying: rows.reduce((a, r) => a + r.n, 0) };
+  }
+  /** Orgs created before `beforeIso` with no keys (or no traffic), for onboarding nudges. */
+  orgsWithoutKeys(beforeIso) { return this.db.prepare("SELECT o.* FROM orgs o WHERE o.email IS NOT NULL AND o.created_at<? AND NOT EXISTS (SELECT 1 FROM keys k WHERE k.org_id=o.id)").all(beforeIso).map((r) => this._org(r)); }
+  orgsWithoutTraffic(beforeIso) { return this.db.prepare("SELECT o.* FROM orgs o WHERE o.email IS NOT NULL AND o.created_at<? AND EXISTS (SELECT 1 FROM keys k WHERE k.org_id=o.id) AND NOT EXISTS (SELECT 1 FROM ledger l JOIN keys k ON k.id=l.key_id WHERE k.org_id=o.id AND l.status<400)").all(beforeIso).map((r) => this._org(r)); }
   setProvider(orgId, provider, { apiKeySealed, baseUrl = null }) { this.q.upsertProvider.run(orgId, provider, apiKeySealed, baseUrl, nowIso()); }
   providersFor(orgId) { return this.q.providersFor.all(orgId); }
   deleteProvider(orgId, provider) { this.q.deleteProvider.run(orgId, provider); }

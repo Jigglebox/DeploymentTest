@@ -10,6 +10,8 @@ import { registerBilling } from './billing.js';
 import { createAuth } from './auth.js';
 import { createOps } from '@jigglebox/shared/ops';
 import { mailerFromEnv } from '@jigglebox/shared/mailer';
+import { requireToken } from '@jigglebox/shared/http';
+import { createLifecycle } from './lifecycle.js';
 import { Stripe } from '@jigglebox/shared/stripe';
 
 export function buildServer(overrides = {}) {
@@ -18,19 +20,23 @@ export function buildServer(overrides = {}) {
   const router = new Router();
   const stripe = overrides.stripe ?? new Stripe(config.billing.secretKey);
   store.ensureDefaultOrg();
-  const auth = createAuth({ store, config });
-  auth.register(router);
-  registerAdmin(router, { store, config, stripe, auth });
-  registerBilling(router, { store, config, stripe, auth });
   const ops = createOps({ db: store.db, product: 'agentfuse', config: config.ops, fetchImpl: overrides.fetchImpl, now: overrides.now });
-  ops.register(router, { auth: (req, url) => auth.requireOrg(req, url), navFor: () => [{ href: '/', label: 'Keys' }, { href: '/feedback', label: 'Feedback' }] });
-  const proxy = createProxyHandler({ store, config, fetchImpl: overrides.fetchImpl, mailer: overrides.mailer ?? mailerFromEnv(config.resendApiKey, overrides.fetchImpl) });
+  const mailer = overrides.mailer ?? mailerFromEnv(config.resendApiKey, overrides.fetchImpl);
+  const lifecycle = createLifecycle({ store, config, ops, mailer, now: overrides.now });
+  const auth = createAuth({ store, config, onSignup: (org) => { ops.track('signup', { tenant: org.id }); lifecycle.welcome(org).catch(() => {}); } });
+  auth.register(router);
+  registerAdmin(router, { store, config, stripe, auth, ops });
+  registerBilling(router, { store, config, stripe, auth, ops });
+  ops.register(router, { auth: (req, url) => auth.requireOrg(req, url), navFor: () => [{ href: '/', label: 'Keys' }, { href: '/growth', label: 'Growth' }, { href: '/feedback', label: 'Feedback' }], mrrFn: () => store.mrr(),
+    // In hosted mode growth numbers are the operator's, not a tenant's: require the admin token there.
+    metricsAuth: config.mode === 'hosted' ? (req, url) => requireToken(req, config.adminToken || config.masterKey, url) : undefined });
+  const proxy = createProxyHandler({ store, config, fetchImpl: overrides.fetchImpl, mailer, ops });
   router.any('/openai/*', proxy);
   router.any('/anthropic/*', proxy);
   const server = createApp(router, { onError: (err, ctx) => { ops.capture(err, ctx); log.error('unhandled', { error: err.message, stack: err.stack, ...ctx }); } });
   let timer = null;
-  const startScheduler = () => { ops.attachProcess(); timer = setInterval(() => ops.tick().catch((e) => log.error('ops tick failed', { error: e.message })), 3600 * 1000); timer.unref(); };
-  return { server, store, config, ops, startScheduler };
+  const startScheduler = () => { ops.attachProcess(); timer = setInterval(() => ops.tick().then(() => lifecycle.tick()).catch((e) => log.error('ops tick failed', { error: e.message })), 3600 * 1000); timer.unref(); };
+  return { server, store, config, ops, lifecycle, startScheduler };
 }
 
 if (isMain(import.meta.url)) {

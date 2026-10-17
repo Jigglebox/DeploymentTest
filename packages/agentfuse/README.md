@@ -87,6 +87,10 @@ node --no-warnings=ExperimentalWarning packages/agentfuse/src/server.js
 
 Org API: `GET /api/me` · `GET/PUT/DELETE /api/providers/:name` · everything under `/api/keys` and `/api/billing`, authenticated with `Authorization: Bearer af_org_...` or the session cookie. Single-tenant mode (the default) is unchanged: admin token, provider keys from the environment.
 
+## Growth and onboarding
+
+`/growth` (operator; in hosted mode it needs the admin token) shows signups → activated → paying → churned, MRR from plans on record, and weekly counts. Hosted orgs get a welcome email with the three setup steps, a nudge after 48 h without an agent key, and a nudge after 7 days with a key but no traffic; each goes out once (`RESEND_API_KEY` + `AGENTFUSE_FROM_EMAIL`).
+
 ## Self-serve upgrades
 
 Set `AGENTFUSE_STRIPE_SECRET_KEY`, `AGENTFUSE_STRIPE_WEBHOOK_SECRET`, `AGENTFUSE_PRO_PRICE_ID`, `AGENTFUSE_TEAM_PRICE_ID` and point a Stripe webhook (`checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`) at `/webhooks/stripe`. The dashboard shows an **Upgrade** button; `POST /api/billing/checkout {plan}` returns a Checkout URL; the webhook flips the stored plan and the key limit immediately. `GET /api/billing` reports the effective plan. Self-hosters without billing keep using `AGENTFUSE_PLAN`.

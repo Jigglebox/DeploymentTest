@@ -13,7 +13,7 @@ export function periodBounds(period) {
 export const feeFor = (recoveredCents, { feePct, feeCapCents = 0 }) => { const raw = Math.round(recoveredCents * feePct / 100); return feeCapCents > 0 ? Math.min(raw, feeCapCents) : raw; };
 
 export class FeeBilling {
-  constructor({ store, stripe, config, now = () => new Date() }) { Object.assign(this, { store, stripe, config, now }); }
+  constructor({ store, stripe, config, now = () => new Date(), ops = null }) { Object.assign(this, { store, stripe, config, now, ops }); }
 
   /** Invoice every connected merchant with recoveries in `period`. Idempotent per (account, period). */
   async run(period, { force = false } = {}) {
@@ -34,6 +34,7 @@ export class FeeBilling {
         const finalized = await this.stripe.finalizeInvoice(inv.id);
         this.store.insertFee({ id: 'fee_' + randomBytes(6).toString('hex'), account: account.id, period, recoveredCents: row.recovered_cents, feeCents, currency: row.currency, stripeInvoiceId: finalized.id ?? inv.id, hostedInvoiceUrl: finalized.hosted_invoice_url ?? null, status: 'invoiced' });
         log.info('fee invoiced', { account: account.id, period, feeCents });
+        this.ops?.track('fee_invoiced', { tenant: account.id, props: { period, feeCents } }); this.ops?.track('converted', { tenant: account.id, once: true });
         results.push({ account: account.id, invoiced: feeCents, invoice: finalized.id ?? inv.id });
       } catch (err) {
         log.error('fee invoicing failed', { account: account.id, period, error: err.message });

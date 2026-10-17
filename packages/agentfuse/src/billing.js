@@ -17,7 +17,7 @@ export async function createCheckout({ config, stripe }, org, { plan = 'pro', em
   return { url: session.url, id: session.id };
 }
 
-export function registerBilling(router, { store, config, stripe, auth }) {
+export function registerBilling(router, { store, config, stripe, auth, ops = null }) {
   router.get('/api/billing', (req, res, { url }) => {
     const org = auth.requireOrg(req, url);
     sendJson(res, 200, { enabled: billingEnabled(config), plan: store.plan(org.id, config.plan), subscription: org.billing ?? null });
@@ -45,12 +45,13 @@ export function registerBilling(router, { store, config, stripe, auth }) {
         const plan = obj.metadata.plan === 'team' ? 'team' : 'pro';
         store.setOrgBilling(org.id, { customerId: obj.customer, subscriptionId: obj.subscription, plan, email: obj.customer_details?.email ?? obj.customer_email ?? null, since: new Date().toISOString() });
         store.setOrgPlan(org.id, plan);
+        ops?.track('converted', { tenant: org.id, props: { plan }, once: true }); ops?.track('plan_changed', { tenant: org.id, props: { plan } });
         log.info('plan upgraded via checkout', { org: org.id, plan });
       }
     } else if (event.type === 'customer.subscription.updated' || event.type === 'customer.subscription.deleted') {
       const org = store.orgBySubscription(obj.id); // ignores other products' subscriptions in the same Stripe account
       if (org) {
-        if (event.type === 'customer.subscription.deleted') { store.setOrgPlan(org.id, 'free'); log.info('subscription ended; plan reverted to free', { org: org.id }); }
+        if (event.type === 'customer.subscription.deleted') { store.setOrgPlan(org.id, 'free'); ops?.track('churned', { tenant: org.id }); log.info('subscription ended; plan reverted to free', { org: org.id }); }
         else {
           const plan = planForPrice(config, obj.items?.data?.[0]?.price?.id);
           if (plan && ['active', 'trialing', 'past_due'].includes(obj.status)) { store.setOrgPlan(org.id, plan); store.setOrgBilling(org.id, { ...org.billing, plan }); }

@@ -5,7 +5,7 @@ import { sendJson, sendHtml, redirect, requireToken, HttpError } from '@jigglebo
 import { layout, esc } from '@jigglebox/shared/html';
 import { log } from '@jigglebox/shared/log';
 
-export function registerConnect(router, { store, stripe, config }) {
+export function registerConnect(router, { store, stripe, config, ops = null }) {
   const enabled = () => Boolean(config.stripeClientId && config.stripeSecretKey);
   const callbackUrl = `${config.publicUrl}/connect/callback`;
 
@@ -31,6 +31,7 @@ export function registerConnect(router, { store, stripe, config }) {
     const acct = await stripe.withAccount(token.stripe_user_id).account().catch(() => ({}));
     const account = store.upsertAccount({ id: token.stripe_user_id, name: acct.business_profile?.name ?? acct.settings?.dashboard?.display_name ?? null, email: acct.email ?? null, livemode: token.livemode !== false });
     log.info('stripe account connected', { account: account.id, livemode: account.livemode });
+    ops?.track('signup', { tenant: account.id, once: true }); ops?.track('account_connected', { tenant: account.id });
     page('Stripe connected', `${esc(account.name ?? account.id)} is now protected. Failed payments will show up on the dashboard as they happen. <a href="/">Go to dashboard</a>`);
   });
 

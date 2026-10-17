@@ -13,7 +13,12 @@ const MIGRATION = `
   CREATE TABLE IF NOT EXISTS feedback (
     id TEXT PRIMARY KEY, source TEXT NOT NULL, tenant TEXT, contact TEXT, category TEXT NOT NULL, message TEXT NOT NULL, context TEXT,
     issue_number INTEGER, issue_url TEXT, created_at TEXT NOT NULL);
-  CREATE TABLE IF NOT EXISTS ops_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);`;
+  CREATE TABLE IF NOT EXISTS ops_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS growth_events (id INTEGER PRIMARY KEY, tenant TEXT, name TEXT NOT NULL, props TEXT, created_at TEXT NOT NULL);
+  CREATE INDEX IF NOT EXISTS growth_name_time ON growth_events(name, created_at);
+  CREATE INDEX IF NOT EXISTS growth_tenant ON growth_events(tenant, name);`;
+// Funnel stages every product maps its own events onto: a tenant signs up, does the one thing that proves value, pays.
+export const FUNNEL = ['signup', 'activated', 'converted', 'churned'];
 const CATEGORIES = ['bug', 'feature', 'billing', 'praise', 'other'];
 const nowIso = () => new Date().toISOString();
 
@@ -33,6 +38,11 @@ export function createOps({ db, product, config = {}, fetchImpl = fetch, now = (
     setFbIssue: db.prepare('UPDATE feedback SET issue_number=?, issue_url=? WHERE id=?'),
     listFb: db.prepare('SELECT * FROM feedback ORDER BY created_at DESC LIMIT ?'),
     fbSince: db.prepare('SELECT COUNT(*) AS n FROM feedback WHERE created_at>?'),
+    insertGrowth: db.prepare('INSERT INTO growth_events (tenant,name,props,created_at) VALUES (?,?,?,?)'),
+    growthOnce: db.prepare('SELECT 1 FROM growth_events WHERE tenant=? AND name=? LIMIT 1'),
+    growthByWeek: db.prepare("SELECT strftime('%Y-%W', created_at) AS week, name, COUNT(*) AS n, COUNT(DISTINCT tenant) AS tenants FROM growth_events WHERE created_at>=? GROUP BY week, name ORDER BY week"),
+    growthSince: db.prepare('SELECT name, COUNT(*) AS n, COUNT(DISTINCT tenant) AS tenants FROM growth_events WHERE created_at>? GROUP BY name'),
+    growthTotals: db.prepare('SELECT name, COUNT(DISTINCT tenant) AS tenants FROM growth_events GROUP BY name'),
     kvGet: db.prepare('SELECT value FROM ops_kv WHERE key=?'),
     kvSet: db.prepare('INSERT INTO ops_kv (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value'),
   };
@@ -57,6 +67,31 @@ export function createOps({ db, product, config = {}, fetchImpl = fetch, now = (
     if (attached) return; attached = true;
     process.on('uncaughtException', (e) => { capture(e, { route: 'process:uncaughtException' }); log.error('uncaught exception', { error: e.message, stack: e.stack }); });
     process.on('unhandledRejection', (e) => { capture(e, { route: 'process:unhandledRejection' }); log.error('unhandled rejection', { error: e?.message ?? String(e) }); });
+  }
+
+  // ---- growth tracking ----
+  /** Record a product event. `once: true` records it only the first time for that tenant (e.g. activation). */
+  function track(name, { tenant = null, props = null, once = false } = {}) {
+    try {
+      if (once && tenant && q.growthOnce.get(tenant, name)) return false;
+      q.insertGrowth.run(tenant, name, props ? JSON.stringify(props).slice(0, 1000) : null, now().toISOString());
+      return true;
+    } catch (e) { log.error('ops.track failed', { error: e.message }); return false; }
+  }
+  /** Funnel + weekly series. `mrrFn` is product-specific: () => ({ mrr_cents, paying }). */
+  function metrics({ weeks = 8, mrrFn = null } = {}) {
+    const t = now();
+    const since30 = new Date(t.getTime() - 30 * 86400_000).toISOString();
+    const since7 = new Date(t.getTime() - 7 * 86400_000).toISOString();
+    const sinceWeeks = new Date(t.getTime() - weeks * 7 * 86400_000).toISOString();
+    const by = (rows) => Object.fromEntries(rows.map((r) => [r.name, { events: r.n, tenants: r.tenants }]));
+    const totals = Object.fromEntries(q.growthTotals.all().map((r) => [r.name, r.tenants]));
+    const weekly = {};
+    for (const r of q.growthByWeek.all(sinceWeeks)) { (weekly[r.week] ??= {})[r.name] = r.tenants; }
+    const funnel = { signups: totals.signup ?? 0, activated: totals.activated ?? 0, converted: totals.converted ?? 0, churned: totals.churned ?? 0 };
+    funnel.activation_rate = funnel.signups ? funnel.activated / funnel.signups : null;
+    funnel.conversion_rate = funnel.activated ? funnel.converted / funnel.activated : null;
+    return { product, as_of: t.toISOString(), funnel, last_7d: by(q.growthSince.all(since7)), last_30d: by(q.growthSince.all(since30)), weekly, revenue: mrrFn ? mrrFn() : null };
   }
 
   // ---- feedback ----
@@ -102,16 +137,40 @@ export function createOps({ db, product, config = {}, fetchImpl = fetch, now = (
     if (!force && last && t.getTime() - Date.parse(last) < digestIntervalSec * 1000) return null;
     const since = last ?? new Date(t.getTime() - digestIntervalSec * 1000).toISOString();
     const errs = q.errSince.get(since), fresh = q.newErrSince.get(since), fb = q.fbSince.get(since);
-    const summary = { product, since, until: t.toISOString(), errors: { fingerprints: errs.fingerprints, occurrences: errs.total, new_fingerprints: fresh.n }, feedback: fb.n };
+    const growth = Object.fromEntries(q.growthSince.all(since).map((r) => [r.name, r.tenants]));
+    const summary = { product, since, until: t.toISOString(), errors: { fingerprints: errs.fingerprints, occurrences: errs.total, new_fingerprints: fresh.n }, feedback: fb.n, growth };
     kv.set('last_digest_at', t.toISOString());
-    if (errs.total > 0 || fb.n > 0) await postWebhook(config.alertWebhook, { text: `${product} ops digest: ${errs.total} error occurrence(s) across ${errs.fingerprints} signature(s) (${fresh.n} new), ${fb.n} feedback item(s) since ${since}`, type: 'ops_digest', ...summary }, { fetchImpl });
+    const g = FUNNEL.filter((k) => growth[k]).map((k) => `${growth[k]} ${k}`).join(', ');
+    if (errs.total > 0 || fb.n > 0 || g) await postWebhook(config.alertWebhook, { text: `${product} digest since ${since}: ${errs.total} error occurrence(s) across ${errs.fingerprints} signature(s) (${fresh.n} new), ${fb.n} feedback item(s)${g ? `; growth: ${g}` : ''}`, type: 'ops_digest', ...summary }, { fetchImpl });
     return summary;
   }
   async function tick() { const s = await sync(); const d = await digest(); return { sync: s, digest: d }; }
 
   // ---- routes ----
   const publicHits = new Map();
-  function register(router, { auth, navFor = () => [] }) {
+  function register(router, { auth, navFor = () => [], mrrFn = null, metricsAuth = null }) {
+    const money = (c) => (Number(c || 0) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+    const pct = (v) => (v == null ? '—' : Math.round(v * 100) + '%');
+    router.get('/api/metrics', (req, res, { url }) => { (metricsAuth ?? auth)(req, url); sendJson(res, 200, metrics({ mrrFn })); });
+    router.get('/growth', (req, res, { url }) => {
+      (metricsAuth ?? auth)(req, url);
+      const m = metrics({ mrrFn });
+      const names = Array.from(new Set([...FUNNEL, ...Object.values(m.weekly).flatMap((w) => Object.keys(w))]));
+      const body = `<div class="grid">
+        <div class="tile"><div class="k">Signups (all time)</div><div class="v">${m.funnel.signups}</div></div>
+        <div class="tile"><div class="k">Activated</div><div class="v">${m.funnel.activated}<span class="muted"> · ${pct(m.funnel.activation_rate)} of signups</span></div></div>
+        <div class="tile"><div class="k">Paying</div><div class="v">${m.revenue?.paying ?? m.funnel.converted}<span class="muted"> · ${pct(m.funnel.conversion_rate)} of activated</span></div></div>
+        <div class="tile"><div class="k">${m.revenue?.label ?? 'MRR'}</div><div class="v">${m.revenue ? money(m.revenue.mrr_cents) : '—'}</div></div>
+        <div class="tile"><div class="k">Churned</div><div class="v">${m.funnel.churned}</div></div>
+        <div class="tile"><div class="k">Last 7 days</div><div class="v" style="font-size:15px">${FUNNEL.map((k) => `${m.last_7d[k]?.tenants ?? 0} ${k}`).join(' · ')}</div></div>
+      </div>
+      <h2>Weekly (distinct tenants per event, last 8 weeks)</h2>
+      <table><thead><tr><th>Week</th>${names.map((n) => `<th>${esc(n)}</th>`).join('')}</tr></thead><tbody>
+      ${Object.entries(m.weekly).map(([w, row]) => `<tr><td class="muted">${esc(w)}</td>${names.map((n) => `<td>${row[n] ?? ''}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${names.length + 1}" class="muted">No events yet.</td></tr>`}
+      </tbody></table>
+      <p class="muted">Funnel definitions: <b>signup</b> = account created · <b>activated</b> = first moment of value (first proxied request, first recovered invoice, first scan report) · <b>converted</b> = first paid plan or invoice · <b>churned</b> = plan ended or account disconnected.</p>`;
+      sendHtml(res, layout({ title: `${product} · Growth`, product, nav: navFor(url), body }));
+    });
     const cors = (res) => { res.setHeader('access-control-allow-origin', '*'); res.setHeader('access-control-allow-headers', 'content-type'); res.setHeader('access-control-allow-methods', 'POST, OPTIONS'); };
     router.get('/api/ops/errors', (req, res, { url }) => { auth(req, url); sendJson(res, 200, { github: Boolean(github), errors: q.listErr.all(100) }); });
     router.get('/api/ops/feedback', (req, res, { url }) => { auth(req, url); sendJson(res, 200, { feedback: q.listFb.all(100).map((f) => ({ ...f, context: f.context ? JSON.parse(f.context) : null })) }); });
@@ -150,5 +209,5 @@ export function createOps({ db, product, config = {}, fetchImpl = fetch, now = (
     });
   }
 
-  return { capture, attachProcess, feedback, sync, digest, tick, register, github: Boolean(github), CATEGORIES };
+  return { capture, attachProcess, feedback, sync, digest, tick, register, track, metrics, kv, github: Boolean(github), CATEGORIES };
 }

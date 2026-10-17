@@ -24,13 +24,15 @@ export function buildServer(overrides = {}) {
 
   router.get('/healthz', (req, res) => sendJson(res, 200, { ok: true, projects: store.countProjects() }));
   const ops = createOps({ db: store.db, product: 'sentinel-cloud', config: config.ops, fetchImpl: overrides.fetchImpl, now: overrides.now });
-  ops.register(router, { auth: (req, url) => { admin(req, url); return { id: 'admin', email: null }; }, navFor: (url) => [{ href: '/' + tokenQs(url, config.adminToken), label: 'Projects' }, { href: '/feedback' + tokenQs(url, config.adminToken), label: 'Feedback' }] });
+  ops.register(router, { auth: (req, url) => { admin(req, url); return { id: 'admin', email: null }; }, navFor: (url) => [{ href: '/' + tokenQs(url, config.adminToken), label: 'Projects' }, { href: '/growth' + tokenQs(url, config.adminToken), label: 'Growth' }, { href: '/feedback' + tokenQs(url, config.adminToken), label: 'Feedback' }],
+    mrrFn: () => ({ label: 'MRR (no billing yet)', mrr_cents: 0, paying: 0 }) });
 
   // ---- CLI-facing: `mcp-sentinel scan --report <url> --report-token <token>` posts here ----
   router.post('/api/v1/report', async (req, res) => {
     const project = projectFromBearer(req);
     const report = await readJson(req);
     const results = await monitor.ingestReport(project, report);
+    ops.track('report_received', { tenant: project.id }); ops.track('activated', { tenant: project.id, once: true });
     sendJson(res, 200, { project: project.id, results });
   });
 
@@ -43,6 +45,7 @@ export function buildServer(overrides = {}) {
     const body = await readJson(req);
     if (!body.name) throw new HttpError(400, 'name is required');
     const project = store.createProject({ name: String(body.name), alertWebhook: body.alert_webhook ?? null, failOn: ['low', 'medium', 'high'].includes(body.fail_on) ? body.fail_on : 'high' });
+    ops.track('signup', { tenant: project.id });
     sendJson(res, 201, { project, raw_token: project.raw_token, note: 'raw_token is shown once; pass it to the CLI as --report-token' });
   });
   router.get('/api/projects/:id', (req, res, { url, params }) => { admin(req, url); const p = projectOr404(params.id); sendJson(res, 200, { project: p, servers: store.serversFor(p.id), latest: store.latestPerServer(p.id), alerts: store.alertsFor(p.id) }); });
@@ -54,13 +57,14 @@ export function buildServer(overrides = {}) {
     const b = await readJson(req);
     if (!b.name || !/^https?:\/\//.test(b.url ?? '')) throw new HttpError(400, 'name and an http(s) url are required');
     const srv = store.addServer(p.id, { name: String(b.name), url: String(b.url), headers: b.headers ?? {} });
+    ops.track('server_registered', { tenant: p.id }); ops.track('activated', { tenant: p.id, once: true });
     sendJson(res, 201, { server: srv, result: b.scan_now === false ? null : await monitor.scanServer(p, srv) });
   });
   router.delete('/api/projects/:id/servers/:name', (req, res, { url, params }) => { admin(req, url); projectOr404(params.id); store.deleteServer(params.id, params.name); sendJson(res, 200, { deleted: params.name }); });
   router.post('/api/tick', async (req, res, { url }) => { admin(req, url); sendJson(res, 200, { ran: await monitor.tick() }); });
 
   // ---- Dashboard ----
-  const nav = (url) => [{ href: '/' + tokenQs(url, config.adminToken), label: 'Projects' }, { href: '/feedback' + tokenQs(url, config.adminToken), label: 'Feedback' }];
+  const nav = (url) => [{ href: '/' + tokenQs(url, config.adminToken), label: 'Projects' }, { href: '/growth' + tokenQs(url, config.adminToken), label: 'Growth' }, { href: '/feedback' + tokenQs(url, config.adminToken), label: 'Feedback' }];
   const sevPill = (n) => n >= 3 ? '<span class="pill bad">high</span>' : n === 2 ? '<span class="pill warn">medium</span>' : n === 1 ? '<span class="pill warn">low</span>' : '<span class="pill ok">clean</span>';
   router.get('/', (req, res, { url }) => {
     admin(req, url);

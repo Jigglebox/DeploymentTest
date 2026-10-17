@@ -15,8 +15,8 @@ function scheduleAt(openedAtIso, dayOffset) {
 }
 
 export class Engine {
-  constructor({ store, stripe, mailer, config, campaign = DEFAULT_CAMPAIGN, now = () => new Date(), fetchImpl = fetch, fees = null }) {
-    Object.assign(this, { store, stripe, mailer, config, campaign, now, fetchImpl, fees });
+  constructor({ store, stripe, mailer, config, campaign = DEFAULT_CAMPAIGN, now = () => new Date(), fetchImpl = fetch, fees = null, ops = null }) {
+    Object.assign(this, { store, stripe, mailer, config, campaign, now, fetchImpl, fees, ops });
   }
   /** Stripe client acting as the merchant that owns the case (Connect) or as ourselves (single-tenant). */
   stripeFor(account) { return this.stripe.withAccount ? this.stripe.withAccount(account) : this.stripe; }
@@ -41,7 +41,7 @@ export class Engine {
       case 'invoice.marked_uncollectible':
       case 'invoice.deleted': return this.closeByInvoice(obj.id, 'lost', 'stripe:' + event.type);
       case 'customer.subscription.deleted': return this.onSubscriptionDeleted(obj);
-      case 'account.application.deauthorized': if (event.account) this.store.disconnectAccount(event.account); return { disconnected: event.account ?? null };
+      case 'account.application.deauthorized': if (event.account) { this.store.disconnectAccount(event.account); this.ops?.track('churned', { tenant: event.account }); } return { disconnected: event.account ?? null };
       case 'payment_method.attached': return this.onPaymentMethodChanged(obj);
       case 'customer.updated': {
         // Only a default payment method change means "card fixed"; balance/metadata edits must not trigger charges.
@@ -74,6 +74,7 @@ export class Engine {
       openedAt, nextActionAt: scheduleAt(openedAt, this.campaign[0].day),
     });
     this.store.action(c.id, 'opened', { failureCode, hardDecline, amountCents: c.amount_cents });
+    this.ops?.track('case_opened', { tenant: account, props: { amountCents: c.amount_cents } });
     log.info('recovery case opened', { case: c.id, invoice: invoice.id, amount: c.amount_cents, hardDecline });
     return { case: c.id, created: true };
   }
@@ -113,6 +114,8 @@ export class Engine {
   async markRecovered(c, by) {
     this.store.closeCase(c.id, 'recovered', { recoveredBy: by, at: this.now().toISOString() });
     this.store.action(c.id, 'recovered', { by, amountCents: c.amount_cents });
+    this.ops?.track('recovered', { tenant: c.account, props: { amountCents: c.amount_cents, by } });
+    this.ops?.track('activated', { tenant: c.account, once: true });
     log.info('recovered', { case: c.id, amount: c.amount_cents, by });
     if (c.customer_email) await this.sendEmail(c, 'recovered').catch((e) => log.warn('thank-you email failed', { error: e.message }));
     postWebhook(this.config.alertWebhook, { text: `RecoverKit recovered ${(c.amount_cents / 100).toFixed(2)} ${c.currency} from ${c.customer_email ?? c.customer_id} (${by})`, type: 'recovered', case: c.id }, { fetchImpl: this.fetchImpl });

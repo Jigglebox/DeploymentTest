@@ -7,7 +7,7 @@ import { DEFAULT_ORG } from './store.js';
 const COOKIE = 'af_session';
 const parseCookies = (req) => Object.fromEntries(String(req.headers.cookie ?? '').split(';').map((c) => c.trim().split('=')).filter(([k]) => k).map(([k, ...v]) => [k, decodeURIComponent(v.join('='))]));
 
-export function createAuth({ store, config }) {
+export function createAuth({ store, config, onSignup = () => {} }) {
   const hosted = config.mode === 'hosted';
   const sessionSecret = config.masterKey || config.adminToken || 'dev-insecure';
   if (hosted && !config.masterKey) throw new Error('AGENTFUSE_MODE=hosted requires AGENTFUSE_MASTER_KEY (32 bytes hex)');
@@ -45,6 +45,7 @@ export function createAuth({ store, config }) {
       if (!f.email || !f.password || String(f.password).length < 12) return page(res, 'Sign up', formPage('signup', 'email and a password of 12+ characters are required'), 400);
       try {
         const org = store.createOrg({ name: f.name || f.email, email: String(f.email).toLowerCase().trim(), passwordHash: hashPassword(f.password) });
+        onSignup(org);
         setSession(res, org.id);
         redirect(res, `/?welcome=1&org_token=${encodeURIComponent(org.raw_token)}`);
       } catch (err) { page(res, 'Sign up', formPage('signup', err.message), err.status ?? 400); }

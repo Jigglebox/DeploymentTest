@@ -26,7 +26,20 @@ A scheduled task on this account starts a fresh Claude Code session every weekda
 4. Never merge. Never change pricing or delete customer data. Keep each PR to one issue.
 5. Finish with one summary comment on a tracking issue titled "Ops triage log".
 
-## 4. Release
+## 4. Growth measurement (automatic)
+
+Every product records funnel events through the ops module and exposes them at `/growth` (operator view) and `GET /api/metrics`:
+
+| Stage | AgentFuse | RecoverKit | Sentinel Cloud |
+|---|---|---|---|
+| signup | org created | Stripe account connected | project created |
+| activated | first successful proxied request | first recovered invoice | first scan report or registered server |
+| converted | first paid plan | first fee invoice | (no billing yet) |
+| churned | subscription ended | merchant revoked access | — |
+
+Revenue tile: AgentFuse MRR from plans on record; RecoverKit fees accrued this month; Sentinel Cloud none yet. The daily digest carries the same counts. Onboarding emails for hosted AgentFuse orgs: welcome on signup, a nudge after 48 h with no key, a nudge after 7 days with a key but no traffic; each sent once.
+
+## 5. Release
 
 PRs are merged by a human after CI. mcp-sentinel ships to npm on a `mcp-sentinel-v*` tag. Hosted services redeploy from `main`.
 

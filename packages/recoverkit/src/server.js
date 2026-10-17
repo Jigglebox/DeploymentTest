@@ -18,8 +18,9 @@ export function buildServer(overrides = {}) {
   const store = new Store(config.dbPath);
   const stripe = overrides.stripe ?? new Stripe(config.stripeSecretKey, { fetchImpl: overrides.fetchImpl ?? fetch, baseUrl: overrides.stripeBaseUrl });
   const mailer = overrides.mailer ?? (config.resendApiKey ? resendMailer(config.resendApiKey) : consoleMailer);
-  const fees = new FeeBilling({ store, stripe, config, now: overrides.now ?? (() => new Date()) });
-  const engine = new Engine({ store, stripe, mailer, config, campaign: overrides.campaign ?? DEFAULT_CAMPAIGN, now: overrides.now, fetchImpl: overrides.fetchImpl, fees });
+  const ops = createOps({ db: store.db, product: 'recoverkit', config: config.ops, fetchImpl: overrides.fetchImpl, now: overrides.now });
+  const fees = new FeeBilling({ store, stripe, config, now: overrides.now ?? (() => new Date()), ops });
+  const engine = new Engine({ store, stripe, mailer, config, campaign: overrides.campaign ?? DEFAULT_CAMPAIGN, now: overrides.now, fetchImpl: overrides.fetchImpl, fees, ops });
   const router = new Router();
 
   router.post('/webhooks/stripe', async (req, res) => {
@@ -35,9 +36,10 @@ export function buildServer(overrides = {}) {
     sendJson(res, 200, { received: true, ...result });
   });
   registerAdmin(router, { store, engine, config, fees });
-  registerConnect(router, { store, stripe, config });
-  const ops = createOps({ db: store.db, product: 'recoverkit', config: config.ops, fetchImpl: overrides.fetchImpl, now: overrides.now });
-  ops.register(router, { auth: (req, url) => { requireToken(req, config.adminToken, url); return { id: 'self', email: config.business.supportEmail }; }, navFor: (url) => [{ href: '/' + (config.adminToken ? `?token=${encodeURIComponent(url.searchParams.get('token') ?? '')}` : ''), label: 'Cases' }, { href: '/feedback' + url.search, label: 'Feedback' }] });
+  registerConnect(router, { store, stripe, config, ops });
+  const q = (url) => (config.adminToken ? `?token=${encodeURIComponent(url.searchParams.get('token') ?? '')}` : '');
+  ops.register(router, { auth: (req, url) => { requireToken(req, config.adminToken, url); return { id: 'self', email: config.business.supportEmail }; }, navFor: (url) => [{ href: '/' + q(url), label: 'Cases' }, { href: '/growth' + q(url), label: 'Growth' }, { href: '/feedback' + q(url), label: 'Feedback' }],
+    mrrFn: () => { const s = store.stats(); return { label: 'Fees this month', mrr_cents: Math.round((s.recovered_month_cents ?? 0) * config.feePct / 100), paying: store.listAccounts().filter((a) => a.status === 'connected').length }; } });
 
   const server = createApp(router, { onError: (err, ctx) => { ops.capture(err, ctx); log.error('unhandled', { error: err.message, stack: err.stack, ...ctx }); } });
   let timer = null;
