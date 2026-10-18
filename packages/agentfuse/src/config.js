@@ -1,4 +1,4 @@
-const env = (k, d) => (process.env[k] ?? d);
+const env = (k, d) => (process.env[k] || d);
 const num = (k, d) => Number(env(k, d));
 
 export const config = {
