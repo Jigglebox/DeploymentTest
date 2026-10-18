@@ -68,7 +68,8 @@ export function registerAdmin(router, { store, config, stripe, auth: authz, ops 
     const from = url.searchParams.get('from') ?? new Date(Date.parse(to) - 30 * 86400_000).toISOString();
     const rows = store.exportLedger(org.id, from, to);
     const cols = ['created_at', 'key_name', 'key_id', 'run_id', 'provider', 'model', 'input_tokens', 'output_tokens', 'cost_usd', 'estimated', 'status', 'latency_ms'];
-    const cell = (v) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    // Neutralize spreadsheet formula injection: cells starting with =+-@ or tab/CR get a leading apostrophe.
+    const cell = (v) => { let s = v == null ? '' : String(v); if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
     const csv = [cols.join(','), ...rows.map((r) => cols.map((c) => cell(r[c])).join(','))].join('\n') + '\n';
     res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="agentfuse-${from.slice(0, 10)}-${to.slice(0, 10)}.csv"` });
     res.end(csv);
@@ -86,7 +87,18 @@ export function registerAdmin(router, { store, config, stripe, auth: authz, ops 
     if (!authz.hosted) throw new HttpError(400, 'single-tenant mode takes provider keys from the environment');
     if (!PROVIDERS[name]) throw new HttpError(400, `unknown provider ${name}`);
     if (!apiKey || String(apiKey).length < 8) throw new HttpError(400, 'api_key is required');
-    store.setProvider(org.id, name, { apiKeySealed: seal(String(apiKey).trim(), config.masterKey), baseUrl: baseUrl ? String(baseUrl).replace(/\/+$/, '') : null });
+    store.setProvider(org.id, name, { apiKeySealed: seal(String(apiKey).trim(), config.masterKey), baseUrl: baseUrl ? validateUpstream(baseUrl) : null });
+  }
+  /** A tenant-supplied upstream must be a plain https origin on an allow-listed provider host: no query, fragment, userinfo or internal addresses. */
+  function validateUpstream(raw) {
+    let u;
+    try { u = new URL(String(raw).trim()); } catch { throw new HttpError(400, 'base_url must be an absolute https URL'); }
+    const host = u.hostname.toLowerCase();
+    const loopback = host === '127.0.0.1' || host === 'localhost';
+    if ((u.protocol !== 'https:' && !(loopback && u.protocol === 'http:')) || u.username || u.password || u.search || u.hash) throw new HttpError(400, 'base_url must be https with no credentials, query or fragment');
+    const ok = config.allowedUpstreamHosts.some((h) => (h.startsWith('*.') ? host.endsWith(h.slice(1)) && host.length > h.length - 1 : host === h));
+    if (!ok) throw new HttpError(400, `base_url host is not an allowed provider host (${config.allowedUpstreamHosts.join(', ')})`);
+    return u.origin + u.pathname.replace(/\/+$/, '');
   }
   function providerStatus(org) {
     const own = Object.fromEntries(store.providersFor(org.id).map((p) => [p.provider, p]));

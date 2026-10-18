@@ -1,6 +1,6 @@
 // Multi-tenant accounts shared by hosted products: orgs with password login, an API token, a plan and billing
 // state. single mode = one implicit default org gated by the admin token; hosted mode = signup/login.
-import { randomBytes, createHash } from 'node:crypto';
+import { randomBytes, createHash, hkdfSync } from 'node:crypto';
 import { readForm, sendHtml, sendJson, redirect, requireToken, HttpError } from './http.js';
 import { layout, esc } from './html.js';
 import { hashPassword, verifyPassword, signToken, verifyToken } from './crypto.js';
@@ -19,6 +19,11 @@ export function createTenancy({ db, product, mode = 'single', adminToken = '', s
   db.exec(DDL);
   const hosted = mode === 'hosted';
   if (hosted && !sessionSecret) throw new Error(`${product}: hosted mode needs a session secret`);
+  if (hosted && !adminToken) throw new Error(`${product}: hosted mode requires an admin token for operator routes`);
+  // Never sign cookies with the raw secret (it may double as an encryption key elsewhere): derive a purpose-bound key.
+  const cookieKey = sessionSecret ? Buffer.from(hkdfSync('sha256', sessionSecret, `${product}-session`, 'tenant-session-v1', 32)).toString('hex') : '';
+  const signupHits = new Map();
+  const cleanName = (name, fallback) => { const n = String(name ?? '').replace(/[\r\n\t]+/g, ' ').replace(/[^\p{L}\p{N} .,'&()_-]/gu, '').trim().slice(0, 80); return n || fallback; };
   const q = {
     insert: db.prepare('INSERT INTO orgs (id,name,email,password_hash,token_hash,token_prefix,plan,billing,created_at) VALUES (?,?,?,?,?,?,?,?,?)'),
     byId: db.prepare('SELECT * FROM orgs WHERE id=?'),
@@ -40,7 +45,7 @@ export function createTenancy({ db, product, mode = 'single', adminToken = '', s
       if (q.byEmail.get(mail)) throw new HttpError(409, 'an account with that email already exists');
       const id = 'org_' + randomBytes(8).toString('hex');
       const raw = tokenPrefix + randomBytes(24).toString('base64url');
-      q.insert.run(id, name || mail, mail, hashPassword(password), hashToken(raw), raw.slice(0, tokenPrefix.length + 4) + '…', null, null, nowIso());
+      q.insert.run(id, cleanName(name, mail.split('@')[0]), mail, hashPassword(password), hashToken(raw), raw.slice(0, tokenPrefix.length + 4) + '…', null, null, nowIso());
       return { ...t.getOrg(id), raw_token: raw };
     },
     getOrg: (id) => view(q.byId.get(id)),
@@ -62,17 +67,17 @@ export function createTenancy({ db, product, mode = 'single', adminToken = '', s
       if (!hosted) { requireToken(req, adminToken, url); return t.ensureDefaultOrg(); }
       const bearer = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
       if (bearer.startsWith(tokenPrefix)) { const org = t.orgByToken(bearer); if (org) return org; }
-      const session = verifyToken(parseCookies(req)[COOKIE], sessionSecret);
+      const session = verifyToken(parseCookies(req)[COOKIE], cookieKey);
       const org = session?.org ? t.getOrg(session.org) : null;
       if (!org) throw new HttpError(401, 'sign in required', { login: `${publicUrl}/login` });
       return org;
     },
     /** Operator-only check (growth metrics etc.): admin token in hosted mode, same as requireOrg in single mode. */
-    requireOperator(req, url) { if (hosted) requireToken(req, adminToken || sessionSecret, url); else requireToken(req, adminToken, url); },
+    requireOperator(req, url) { requireToken(req, adminToken, url); },
 
     register(router) {
       if (!hosted) return;
-      const setSession = (res, orgId) => res.setHeader('set-cookie', `${COOKIE}=${signToken({ org: orgId }, sessionSecret)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 86400}${publicUrl.startsWith('https') ? '; Secure' : ''}`);
+      const setSession = (res, orgId) => res.setHeader('set-cookie', `${COOKIE}=${signToken({ org: orgId }, cookieKey)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 86400}${publicUrl.startsWith('https') ? '; Secure' : ''}`);
       const page = (res, title, inner, status = 200) => sendHtml(res, layout({ title: `${product} · ${title}`, product, nav: [{ href: '/login', label: 'Sign in' }, { href: '/signup', label: 'Create account' }], body: inner }), status);
       const formPage = (kind, error = '') => `<div class="tile" style="max-width:420px;margin:40px auto"><h2 style="margin-top:0">${kind === 'signup' ? `Create your ${esc(product)} account` : 'Sign in'}</h2>
         ${error ? `<p class="pill bad">${esc(error)}</p>` : ''}
@@ -86,6 +91,10 @@ export function createTenancy({ db, product, mode = 'single', adminToken = '', s
       router.get('/signup', (req, res) => page(res, 'Sign up', formPage('signup')));
       router.get('/login', (req, res) => page(res, 'Sign in', formPage('login')));
       router.post('/signup', async (req, res) => {
+        // Signups send email: cap them per source address so the sender domain cannot be used as a relay.
+        const ip = req.socket?.remoteAddress ?? 'unknown', cutoff = Date.now() - 3600_000;
+        const recent = (signupHits.get(ip) ?? []).filter((t) => t > cutoff); recent.push(Date.now()); signupHits.set(ip, recent);
+        if (recent.length > 10) return page(res, 'Sign up', formPage('signup', 'too many signups from this address; try again later'), 429);
         const f = await readForm(req);
         if (!f.email || String(f.password ?? '').length < 12) return page(res, 'Sign up', formPage('signup', 'email and a password of 12+ characters are required'), 400);
         try {

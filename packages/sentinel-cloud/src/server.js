@@ -37,7 +37,7 @@ export function buildServer(overrides = {}) {
 
   router.get('/healthz', (req, res) => sendJson(res, 200, { ok: true, mode: config.mode, projects: store.countAllProjects() }));
   ops.register(router, { auth: (req, url) => admin(req, url), navFor: (url) => [{ href: '/' + q(url), label: 'Projects' }, { href: '/growth' + q(url), label: 'Growth' }, { href: '/feedback' + q(url), label: 'Feedback' }],
-    mrrFn: () => tenancy.mrr({ pro: config.seatPriceCents }), metricsAuth: (req, url) => tenancy.requireOperator(req, url) });
+    mrrFn: () => tenancy.mrr({ pro: config.seatPriceCents }), metricsAuth: (req, url) => tenancy.requireOperator(req, url), opsAuth: (req, url) => tenancy.requireOperator(req, url) });
 
   // ---- CLI-facing: `mcp-sentinel scan --report <url> --report-token <token>` posts here ----
   router.post('/api/v1/report', async (req, res) => {

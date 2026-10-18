@@ -20,7 +20,7 @@ test('crypto primitives round-trip and reject tampering', () => {
 test('hosted mode: signup, login, org-scoped keys and provider credentials, per-org billing', async (t) => {
   const up = await fakeUpstream(); t.after(() => up.server.close());
   const stripe = { async checkoutSession(p) { this.last = p; return { id: 'cs_h', url: 'https://checkout.stripe.com/c/cs_h' }; } };
-  const app = buildServer({ dbPath: ':memory:', mode: 'hosted', masterKey: MASTER, publicUrl: 'http://af.local', plan: 'free', stripe,
+  const app = buildServer({ dbPath: ':memory:', mode: 'hosted', masterKey: MASTER, adminToken: 'root', allowedUpstreamHosts: ['api.openai.com', '*.openai.azure.com', '127.0.0.1'], publicUrl: 'http://af.local', plan: 'free', stripe,
     billing: { secretKey: 'sk_test', webhookSecret: 'whsec_h', proPriceId: 'price_pro', teamPriceId: 'price_team' },
     providers: { openai: { baseUrl: up.url, apiKey: 'env-key-must-not-be-used' }, anthropic: { baseUrl: up.url, apiKey: '' } } });
   const base = await listen(app.server); t.after(() => { app.server.closeAllConnections(); app.server.close(); });
@@ -36,6 +36,10 @@ test('hosted mode: signup, login, org-scoped keys and provider credentials, per-
   const orgToken = new URL(su.headers.get('location'), base).searchParams.get('org_token');
   assert.match(orgToken, /^af_org_/);
   assert.equal((await fetch(base + '/signup', { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form({ name: 'Dup', email: 'ops@acme.test', password: 'correct horse battery' }) })).status, 409, 'duplicate email');
+  const evil = await fetch(base + '/signup', { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form({ name: 'Hi,\n\nReset your password at http://evil.test <b>now</b>', email: 'victim@target.test', password: 'correct horse battery' }) });
+  assert.equal(evil.status, 303);
+  const victimOrg = app.store.tenancy.login('victim@target.test', 'correct horse battery');
+  assert.ok(!victimOrg.name.includes('\n') && !victimOrg.name.includes('<') && !victimOrg.name.includes('http://'), victimOrg.name);
 
   const asCookie = (path, init = {}) => fetch(base + path, { ...init, headers: { cookie, 'content-type': 'application/json', ...(init.headers ?? {}) } });
   const asToken = (path, init = {}) => fetch(base + path, { ...init, headers: { authorization: `Bearer ${orgToken}`, 'content-type': 'application/json', ...(init.headers ?? {}) } });
@@ -53,13 +57,26 @@ test('hosted mode: signup, login, org-scoped keys and provider credentials, per-
   const chat = (body) => fetch(base + '/openai/v1/chat/completions', { method: 'POST', headers: { authorization: `Bearer ${created.raw_key}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
   assert.equal((await chat({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'hi' }] })).status, 502);
   assert.equal((await asToken('/api/providers/openai', { method: 'PUT', body: JSON.stringify({ api_key: 'short' }) })).status, 400);
+  // SSRF guard: tenant-supplied base_url must be an https URL on the upstream allow-list, with no userinfo/query/fragment.
+  for (const bad of ['http://metadata.google.internal/computeMetadata/v1/#', 'https://169.254.169.254/latest/', 'https://api.openai.com/v1?x=', 'https://user:pw@api.openai.com', 'https://evil.example.com', 'http://api.openai.com', 'not a url']) {
+    const r = await asToken('/api/providers/openai', { method: 'PUT', body: JSON.stringify({ api_key: 'sk-acme-real-key', base_url: bad }) });
+    assert.equal(r.status, 400, `rejects ${bad}`);
+  }
+  const az = await asToken('/api/providers/openai', { method: 'PUT', body: JSON.stringify({ api_key: 'sk-acme-real-key', base_url: 'https://acme.openai.azure.com/openai/' }) });
+  assert.equal(az.status, 200, 'wildcard allow-list entry accepted');
   const saved = await asToken('/api/providers/openai', { method: 'PUT', body: JSON.stringify({ api_key: 'sk-acme-real-key', base_url: up.url + '/' }) }).then((r) => r.json());
   assert.equal(saved.providers.find((p) => p.provider === 'openai').configured, true);
   assert.ok(!JSON.stringify(saved).includes('sk-acme'), 'secret never echoed');
   assert.equal(app.store.providersFor(me.org.id)[0].api_key_sealed.includes('sk-acme'), false, 'sealed at rest');
-  const ok = await chat({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'hi' }], max_tokens: 10 });
+  const ok = await fetch(base + '/openai/v1/chat/completions', { method: 'POST', headers: { authorization: `Bearer ${created.raw_key}`, 'content-type': 'application/json', 'metadata-flavor': 'Google', 'x-stainless-lang': 'js', 'anthropic-beta': 'x' }, body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'hi' }], max_tokens: 10 }) });
   assert.equal(ok.status, 200);
   assert.equal(up.calls.at(-1).headers.authorization, 'Bearer sk-acme-real-key', "the org's own key reaches the provider");
+  assert.equal(up.calls.at(-1).headers['metadata-flavor'], undefined, 'arbitrary client headers are not forwarded');
+  assert.equal(up.calls.at(-1).headers['x-stainless-lang'], 'js', 'SDK headers are');
+  // Operator-only routes are closed to tenants even in hosted mode.
+  for (const path of ['/api/ops/errors', '/api/ops/feedback', '/api/metrics']) assert.equal((await asToken(path)).status, 401, path);
+  assert.equal((await asToken('/api/ops/sync', { method: 'POST' })).status, 401);
+  assert.equal((await fetch(base + '/api/ops/feedback', { headers: { authorization: 'Bearer root' } })).status, 200);
 
   // A second org cannot see or use the first org's keys.
   const su2 = await fetch(base + '/signup', { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form({ name: 'Globex', email: 'it@globex.test', password: 'another long password' }) });
@@ -86,8 +103,12 @@ test('hosted mode: signup, login, org-scoped keys and provider credentials, per-
   assert.ok(html.includes('Acme') && html.includes('agent-1') && !html.includes('Globex'));
   const lo = await fetch(base + '/logout', { method: 'POST', redirect: 'manual', headers: { cookie } });
   assert.match(lo.headers.get('set-cookie'), /Max-Age=0/);
+  // Signup rate limit per IP (checked last: every signup above shares this address).
+  for (let i = 0; i < 12; i++) await fetch(base + '/signup', { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form({ name: 'x', email: `bulk${i}@target.test`, password: 'correct horse battery' }) });
+  assert.equal((await fetch(base + '/signup', { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form({ name: 'x', email: 'bulk9@target.test', password: 'correct horse battery' }) })).status, 429, 'signup rate limit');
 });
 
-test('hosted mode refuses to start without a master key', () => {
-  assert.throws(() => buildServer({ dbPath: ':memory:', mode: 'hosted', masterKey: '' }), /AGENTFUSE_MASTER_KEY/);
+test('hosted mode refuses to start without a master key or an admin token', () => {
+  assert.throws(() => buildServer({ dbPath: ':memory:', mode: 'hosted', masterKey: '', adminToken: 'x' }), /AGENTFUSE_MASTER_KEY/);
+  assert.throws(() => buildServer({ dbPath: ':memory:', mode: 'hosted', masterKey: 'a'.repeat(64), adminToken: '' }), /admin token/);
 });

@@ -33,6 +33,8 @@ export const config = {
     alertWebhook: env('OPS_ALERT_WEBHOOK', env('AGENTFUSE_ALERT_WEBHOOK', '')),
     digestIntervalSec: num('OPS_DIGEST_INTERVAL_SECONDS', 86400),
   },
+  // Hosts a tenant may point a provider at (hosted mode). Wildcards allowed as a leading '*.'.
+  allowedUpstreamHosts: env('AGENTFUSE_ALLOWED_UPSTREAM_HOSTS', 'api.openai.com,api.anthropic.com,*.openai.azure.com').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean),
   pricingOverrides: env('AGENTFUSE_PRICING_JSON', ''),
   unknownModelPricePerM: { input: num('AGENTFUSE_UNKNOWN_INPUT_PRICE', 5), output: num('AGENTFUSE_UNKNOWN_OUTPUT_PRICE', 25) },
 };

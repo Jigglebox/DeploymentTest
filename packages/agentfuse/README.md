@@ -66,6 +66,7 @@ Auth: `Authorization: Bearer $AGENTFUSE_ADMIN_TOKEN` (or `?token=` for the dashb
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` | | |
 | `AGENTFUSE_PRICING_JSON` | | override/add model prices, `{"model":{"input":$/M,"output":$/M}}` |
 | `AGENTFUSE_UNKNOWN_INPUT_PRICE` / `_OUTPUT_PRICE` | 5 / 25 | conservative price for unknown models |
+| `AGENTFUSE_ALLOWED_UPSTREAM_HOSTS` | `api.openai.com,api.anthropic.com,*.openai.azure.com` | hosts a tenant may set as a provider `base_url` (https only; `*.` wildcards) |
 
 ## Pricing
 
@@ -77,7 +78,7 @@ Auth: `Authorization: Bearer $AGENTFUSE_ADMIN_TOKEN` (or `?token=` for the dashb
 
 ## Hosted mode (multi-tenant SaaS)
 
-`AGENTFUSE_MODE=hosted` turns one instance into a service: customers sign up at `/signup`, get a dashboard session plus an org API token (`af_org_...`), paste their own OpenAI/Anthropic keys (stored sealed with `AGENTFUSE_MASTER_KEY` using AES-256-GCM, never returned), create agent keys under their org, and upgrade their own plan. Every key, ledger row, event and budget is scoped to the org; another org gets 404 on your keys. Generate the master key once: `openssl rand -hex 32`.
+`AGENTFUSE_MODE=hosted` turns one instance into a service: customers sign up at `/signup`, get a dashboard session plus an org API token (`af_org_...`), paste their own OpenAI/Anthropic keys (stored sealed with `AGENTFUSE_MASTER_KEY` using AES-256-GCM, never returned), create agent keys under their org, and upgrade their own plan. Every key, ledger row, event and budget is scoped to the org; another org gets 404 on your keys. Generate the master key once: `openssl rand -hex 32`. Hosted mode refuses to start without `AGENTFUSE_ADMIN_TOKEN`: operator routes (`/growth`, `/api/metrics`, `/api/ops/*`) are admin-only, never tenant-visible. Tenant `base_url` overrides must be https and on `AGENTFUSE_ALLOWED_UPSTREAM_HOSTS`; only a fixed set of request headers is forwarded upstream.
 
 ```bash
 AGENTFUSE_MODE=hosted AGENTFUSE_MASTER_KEY=$(openssl rand -hex 32) AGENTFUSE_PUBLIC_URL=https://fuse.example.com \

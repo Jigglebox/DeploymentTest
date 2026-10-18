@@ -177,6 +177,10 @@ test('CSV audit export is org-scoped and well-formed', async () => {
   assert.equal(lines[0], 'created_at,key_name,key_id,run_id,provider,model,input_tokens,output_tokens,cost_usd,estimated,status,latency_ms');
   assert.ok(lines.length > 5, 'rows from earlier tests are included');
   assert.ok(lines.some((l) => l.includes('agent-a')));
+  const k = store.createKey({ name: 'csv', policy: { monthly_budget_usd: 1 } });
+  store.record({ keyId: k.id, runId: '=HYPERLINK("http://evil")', provider: 'openai', model: 'gpt-4o-mini', costUsd: 0, status: 200, at: new Date(Date.now() - 1000).toISOString() });
+  const again = await fetch(base + '/api/export.csv', { headers: { authorization: 'Bearer admin' } }).then((r) => r.text());
+  assert.ok(again.includes("'=HYPERLINK"), 'formula-leading cells are neutralised');
 });
 
 test('a trip also sends an email alert when a mailer and recipient are configured', async (t) => {

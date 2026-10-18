@@ -10,6 +10,9 @@ import { fingerprintBody } from './store.js';
 import { unseal } from '@jigglebox/shared/crypto';
 
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'proxy-authorization', 'proxy-authenticate', 'host', 'content-length', 'content-encoding', 'accept-encoding']);
+// Only headers the provider SDKs legitimately send are forwarded; anything else (e.g. metadata-service headers) is dropped.
+const FORWARD_HEADERS = new Set(['content-type', 'accept', 'user-agent', 'anthropic-version', 'anthropic-beta', 'openai-organization', 'openai-project', 'openai-beta', 'x-request-id']);
+const forwardable = (name) => FORWARD_HEADERS.has(name) || name.startsWith('x-stainless-');
 const STATUS_FOR = { circuit_open: 402, budget_exceeded: 402, budget_would_exceed: 402, loop_detected: 402, key_disabled: 403, model_not_allowed: 403, rate_limited: 429 };
 
 function errorBody(decision, key, publicUrl) {
@@ -85,7 +88,7 @@ export function createProxyHandler({ store, config, fetchImpl = fetch, mailer = 
 
     const headers = {};
     for (const [k, v] of Object.entries(req.headers)) {
-      if (HOP_BY_HOP.has(k) || provider.stripHeaders.includes(k) || k.startsWith('x-agentfuse-')) continue;
+      if (HOP_BY_HOP.has(k) || provider.stripHeaders.includes(k) || !forwardable(k)) continue;
       headers[k] = v;
     }
     Object.assign(headers, provider.authHeaders(upstream.apiKey), { 'accept-encoding': 'identity' });

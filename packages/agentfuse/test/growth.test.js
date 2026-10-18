@@ -11,7 +11,7 @@ test('growth funnel: signup -> activated -> converted -> churned, MRR, lifecycle
   const up = await fakeUpstream(); t.after(() => up.server.close());
   const mailer = { name: 'test', sent: [], async send(m) { this.sent.push(m); return {}; } };
   const clock = { t: Date.parse('2026-10-18T10:00:00Z') };
-  const app = buildServer({ dbPath: ':memory:', mode: 'hosted', masterKey: MASTER, adminToken: 'root', publicUrl: 'http://af.local', mailer, now: () => new Date(clock.t),
+  const app = buildServer({ dbPath: ':memory:', mode: 'hosted', masterKey: MASTER, adminToken: 'root', allowedUpstreamHosts: ['api.openai.com', '127.0.0.1'], publicUrl: 'http://af.local', mailer, now: () => new Date(clock.t),
     billing: { secretKey: 'sk', webhookSecret: 'whsec_g', proPriceId: 'price_pro', teamPriceId: 'price_team' }, providers: { openai: { baseUrl: up.url, apiKey: '' }, anthropic: { baseUrl: up.url, apiKey: '' } } });
   const base = await listen(app.server); t.after(() => { app.server.closeAllConnections(); app.server.close(); });
 

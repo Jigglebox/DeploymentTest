@@ -32,7 +32,7 @@ export function buildServer(overrides = {}) {
   registerAdmin(router, { store, config, stripe, auth, ops, billing });
   ops.register(router, { auth: (req, url) => auth.requireOrg(req, url), navFor: () => [{ href: '/', label: 'Keys' }, { href: '/growth', label: 'Growth' }, { href: '/feedback', label: 'Feedback' }], mrrFn: () => store.mrr(),
     // In hosted mode growth numbers are the operator's, not a tenant's: require the admin token there.
-    metricsAuth: (req, url) => auth.requireOperator(req, url) });
+    metricsAuth: (req, url) => auth.requireOperator(req, url), opsAuth: (req, url) => auth.requireOperator(req, url) });
   const proxy = createProxyHandler({ store, config, fetchImpl: overrides.fetchImpl, mailer, ops });
   router.any('/openai/*', proxy);
   router.any('/anthropic/*', proxy);
