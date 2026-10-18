@@ -1,0 +1,12 @@
+{
+  "name": "recoverkit",
+  "version": "0.1.0",
+  "description": "Failed-payment recovery for Stripe subscriptions: smart retries, card-update emails, hosted update links. Pay only on recovered revenue.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node --no-warnings=ExperimentalWarning src/server.js",
+    "test": "node --no-warnings=ExperimentalWarning --test test/*.test.js"
+  },
+  "dependencies": { "@jigglebox/shared": "*" }
+}

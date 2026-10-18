@@ -1,0 +1,32 @@
+services:
+  agentfuse:
+    build: { context: ., args: { PRODUCT: agentfuse } }
+    ports: ["8787:8787"]
+    environment:
+      AGENTFUSE_DB: /app/data/agentfuse.db
+      AGENTFUSE_ADMIN_TOKEN: ${AGENTFUSE_ADMIN_TOKEN:-change-me}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AGENTFUSE_ALERT_WEBHOOK: ${AGENTFUSE_ALERT_WEBHOOK:-}
+    volumes: ["agentfuse-data:/app/data"]
+  recoverkit:
+    build: { context: ., args: { PRODUCT: recoverkit } }
+    ports: ["8788:8788"]
+    environment:
+      RECOVERKIT_DB: /app/data/recoverkit.db
+      RECOVERKIT_ADMIN_TOKEN: ${RECOVERKIT_ADMIN_TOKEN:-change-me}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+    volumes: ["recoverkit-data:/app/data"]
+  sentinel-cloud:
+    build: { context: ., args: { PRODUCT: sentinel-cloud } }
+    ports: ["8789:8789"]
+    environment:
+      SENTINEL_DB: /app/data/sentinel-cloud.db
+      SENTINEL_ADMIN_TOKEN: ${SENTINEL_ADMIN_TOKEN:-change-me}
+    volumes: ["sentinel-data:/app/data"]
+volumes:
+  sentinel-data: {}
+  agentfuse-data: {}
+  recoverkit-data: {}

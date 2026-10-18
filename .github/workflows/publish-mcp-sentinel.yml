@@ -1,0 +1,18 @@
+name: Publish mcp-sentinel
+on:
+  push:
+    tags: ['mcp-sentinel-v*']
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', registry-url: 'https://registry.npmjs.org' }
+      - run: npm ci
+      - run: npm test
+      - name: Set version from tag
+        run: npm version --no-git-tag-version "${GITHUB_REF_NAME#mcp-sentinel-v}" -w packages/mcp-sentinel
+      - run: npm publish --access public --provenance -w packages/mcp-sentinel
+        env: { NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}" }

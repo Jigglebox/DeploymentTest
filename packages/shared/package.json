@@ -1,0 +1,20 @@
+{
+  "name": "@jigglebox/shared",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./db": "./src/db.js",
+    "./http": "./src/http.js",
+    "./log": "./src/log.js",
+    "./notify": "./src/notify.js",
+    "./html": "./src/html.js",
+    "./stripe": "./src/stripe.js",
+    "./runtime": "./src/runtime.js",
+    "./crypto": "./src/crypto.js",
+    "./ops": "./src/ops.js",
+    "./mailer": "./src/mailer.js",
+    "./tenancy": "./src/tenancy.js",
+    "./subscriptions": "./src/subscriptions.js"
+  }
+}
